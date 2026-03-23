@@ -1,0 +1,199 @@
+\documentclass{article}
+
+\usepackage[scale=0.8]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{polyglossia}
+\setdefaultlanguage{czech}
+
+\usepackage{plex-otf}
+\usepackage{booktabs}
+\usepackage{xcolor}
+
+% pomůcka pro "TODO" -- před odevzdáním ji odmažte.
+\def\xxx#1{\textcolor{red!50}{\itshape #1}}
+
+\title{Specifikace softwarového díla\\a časový plán implementace pro: \\ \textbf{Simple code generation toolkit }}
+
+\author{Jakub Turek}
+
+\date{wip}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Projekt zaměřůjící se na implementaci jednoduché sady nástrojů pro generovaní kódu z pro projekt navrženého mezikódu (IR) v programovacím jazyce Haskell. Primárním cílém je prozkoumat různé techniky code generation a vytvořit nástroj, který je uživatelsky jednodušší než LLVM, ale zároveň poskytuje dostatečné možnosti, aby mohl být využit jako back-end pro překladač jazyka Haskell MicroHs, nebo výuku teorie překladačů.
+\end{abstract}
+
+\clearpage
+\tableofcontents
+
+\clearpage
+\section*{Tabulka revizí}
+
+\begin{center}
+\begin{tabular}{llll}
+% pokud potřebujete víc místa na popis změny:
+% \begin{tabular}{llp{0.4\linewidth}l}
+\toprule
+Jméno & Datum & Důvod změny & Verze \\
+\midrule
+\xxx{Autor} & \xxx{Datum} & \xxx{Stručný popis změny} & \xxx{Verze} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\clearpage
+\section{Základní informace}
+
+\xxx{Před tím, než začnete dokument vyplňovat, celý si ho přečtěte a projděte si příklad, jak ho vyplnit --- pomůže vám to možná smysluplně zařadit některé části specifikace a pochopit, co je jednotlivými částmi myšleno. Některé části nemusí pro konkrétní projekty dávat dobrý smysl --- v takovém případě je zcela odstraňte. Nebojte se důležité informace zopakovat v dokumentu klidně několikrát v různých částech. Části textu označené makrem \texttt{\xxx} z finálního textu odstraňte.}
+
+\subsection{Popis a zaměření softwarového díla}
+
+\xxx{Popište krátce specifikovaný software. Krátce zdůvodněte, proč jste se rozhodli ho implementovat, uveďte, co přinese nového, na jakou cílovou skupinu je zaměřen. Pokud existují alternativy, uveďte je a zdůvodněte, v čem se vaše řešení bude odlišovat}
+
+\subsection{Použité technologie }
+
+\xxx{Uveďte seznam nejdůležitějších technologií (např. knihovny, hardware atd.), které budete v rámci projektu využívat}
+
+\subsection{Odkazy (Reference)}
+
+\xxx{Uveďte odkazy na všechny ostatní informace, se kterými by měl být seznámen čtenář této specifikace. To mohou být například webové stránky, knihy, manuály, tutoriály nebo odborné články. Uvádějte je všechny ve stejném formátu obsahujícím autora/instituci, verzi, datum a tam, kde je to nutné, také krátký popis, popřípadě zdroj.}
+
+\subsection{Konvence tohoto dokumentu}
+
+\xxx{Pokud plánujete používat typografické nebo jiné konvence při psaní této specifikace, popište je zde.}
+
+\section{Stručný popis softwarového díla}
+
+\subsection{Důvod vzniku softwarového díla a jeho základní části a cíle řešení}
+
+\xxx{Popište, proč má softwarové dílo vzniknout. Uveďte, zda se má jednat o samostatný produkt, rozšíření funkcionality, náhradu existujícího produktu nebo něco jiného. Pokud se jedná o součást většího systému, popište požadavky na tento systém, popřípadě požadavky na jeho začlenění do tohoto systému, popište rozhraní, které bude pro začlenění využito. Pokud bude systém složen z několika částí či vrstev, nakreslete jednoduchý diagram a popište funkce jednotlivých částí.}
+
+\subsection{Hlavní funkce}
+
+\xxx{Popište hlavní funkce díla. Nezacházejte do detailů, jednotlivé detaily funkcionality budou popsány v následujících sekcích, zde postačí pouze stručný ``high-level'' přehled.}
+
+\subsection{Motivační příklad užití}
+
+\xxx{Pokud to je možné, uveďte (bez technických detailů) demonstrativní příklad užití, který bude dokladovat typické funkce díla.}
+
+\subsection{Prostředí aplikace}
+
+\xxx{Popište prostředí, ve kterém bude aplikace běžet. To může být například požadovaný hardware, operační systém, vyžadované knihovny a balíčky, jejich verze apod.}
+
+\subsection{Omezení díla}
+
+\xxx{Popište veškerá omezení, která mohou ovlivnit specifikaci a implementaci. To mohou být například licenční podmínky využívaných technologií, omezení daná rozhraním hardwarové platformy nebo software, se kterým má dílo spolupracovat, vyžadovaná bezpečnost, konvence již existujících částí v případě rozšiřování funkcionality atd. Další kategorií je závislost na třetích stranách, například nutnost poskytnutí práv na specifický stroj, přistup do sítě, poskytnutí dat apod.}
+
+\subsection{Dokumentace díla}
+
+\xxx{Pokud plánujete, že k práci bude potřeba vytvořit více než běžnou uživatelskou (popisující instalaci a používání programu) a vývojovou dokumentaci, tak pro detailnější popis požadavků použijte tuto sekci. Typický příklad je např. tvorba aplikace rozšiřitelné pomocí plug-inů --- zde je minimálně třeba vývojová dokumentace k samotnému programu, uživatelská dokumentace popisující instalaci a použití aplikace a případných plug-inů a navíc uživatelská dokumentace pro programátory nových plug-inů, možná i nějaké tutoriály, jak vytvořit nový plug-in, apod.}
+
+\section{Vnější rozhraní}
+
+\subsection{Uživatelské rozhraní, vstupy a výstupy}
+
+\xxx{Popište základní principy interakce mezi uživatelem a programem. Dále v této části popište vstupy a výstupy programu.}
+
+\subsection{Rozhraní s hardware}
+
+\xxx{Popište interface díla s hardware, pokud nějaký specificky využívá. Tato část může obsahovat výčet podporovaného hardware, ovladačů, komunikačních protokolů atd.}
+
+\subsection{Rozhraní se software}
+
+\xxx{Popište interakci díla s ostatními částmi logiky aplikace včetně jejich verze. Tato část může obsahovat popis interakce s databází, operačním systémem, knihovnami nebo jinými částmi software. Popište, jaká data se budou předávat a jejich význam. Uveďte, která data budou sdílena jednotlivými částmi, popřípadě jakým způsobem bude sdílení implementováno.}
+
+\subsection{Komunikační rozhraní}
+
+\xxx{Popište komunikační rozhraní produktu. To může být například zasílání emailů nebo komunikace se síťovými servery apod. Uveďte použité standardy/technologie/protokoly jako je např. FTP, HTTP. Specifikujte zabezpečení nebo synchronizaci komunikace, pokud budete nějaké využívat.}
+
+\section{Detailní popis funkcionality}
+
+\xxx{Tato část má za účel popsat detailně jednotlivé části funkcionality. Následující část bude v dokumentu tolikrát, kolikrát je to potřeba. Součástí popisu funkcionality je i popis reakce na chybové stavy.}
+
+\subsection{Funkce 1}
+
+\xxx{Nadpis ``Funkce 1'' přepište na název funkcionality, kterou chcete popisovat a popište tuto funkci programu.}
+
+\subsection{Funkce 2}
+
+\xxx{Nadpis ``Funkce 2'' přepište na název funkcionality, kterou chcete popisovat a popište tuto funkci programu.}
+
+\subsection{Funkce 3-n}
+
+\xxx{Popište stejným způsobem další funkce programu.}
+
+\section{Obrazovky}
+
+\xxx{Načrtněte návrhy nejdůležitějších obrazovek a stručně je popište. Obrazovky mohou být pouze schématické. U aplikací s více pohledy nebo složitějšími obrazovkami by součástí této sekce měl být i jednoduchý automat, který bude zobrazovat přechody mezi jednotlivými obrazovkami. Jednoduchou cestou, jak je rychle vytvořit, je například WinForm designer ve Microsoft Visual Studiu apod. - ale stačí třeba i naskenovaný přehledný náčrtek na papíře.}
+
+\subsection{Obrazovka 1}
+
+\xxx{Obrázek obrazovky.}
+
+\xxx{Popis této obrazovky.}
+
+\subsection{Obrazovka 2}
+
+\xxx{Obrázek obrazovky.}
+
+\xxx{Popis této obrazovky.}
+
+\subsection{Obrazovka 3-n}
+
+\xxx{Popište stejným způsobem další obrazovky programu.}
+
+\section{Ostatní (mimofunkční) požadavky}
+
+\subsection{Požadavky na výkon}
+
+\xxx{Pokud jsou na produkt kladeny nějaké specifické výkonové požadavky, specifikujte a zdůvodněte je zde. Může jít například o deadlines nebo latenci jednotlivých tasků u real-time systémů.}
+
+\subsection{Požadavky na bezpečnost využívání aplikace}
+
+\xxx{Specifikujte potenciální nebezpečí spojená s využíváním díla. Tato část může obsahovat například potenciální ztrátu dat, fyzické škody v případě řídících systémů nebo zdravotní rizika uživatelů.}
+
+\subsection{Požadavky na zabezpečení dat}
+
+\xxx{Specifikujte požadavky spojené s bezpečností a zabezpečením dat využívaných nebo vytvořených programem. Popište způsob autentizace uživatelů, pokud je v aplikace využívána. Uveďte všechny externí požadavky na bezpečnost, které musí být splněny.}
+
+\subsection{Požadavky na rozšiřitelnost a začlenitelnost}
+
+\xxx{Uveďte požadavky na budoucí rozšiřitelnost díla, popřípadě jeho začleňování do existujících projektů.}
+
+\section{Ostatní požadavky}
+
+\xxx{Specifikujte ostatní požadavky na dílo.}
+
+\section{Negativní vymezení}
+
+\xxx{Uveďte, co není součástí tohoto díla a mohlo by to být implicitně předpokládáno.}
+
+\section{Time-line \& Milestones}
+
+\xxx{Specifikujte fáze definovatelné implementace --- takzvané milestones, milníky. Uveďte datum, kdy bude dosaženo milníku a způsob, kterým bude prezentován vašemu vedoucímu, například prezentací, předvedením, commitem do repository apod. Typický rozestup mezi milníky by měl být přibližně jeden měsíc. Nezapomeňte na dostatečné rezervy. Není snadné přesně odhadnout, kolik budete potřebovat na vypracování jednotlivých částí času --- programátoři často podceňují časové nároky třikrát i více!}
+
+\begin{center}
+\begin{tabular}{lll}
+% pokud potřebujete víc místa na popis milníku:
+% \begin{tabular}{lp{0.4\linewidth}l}
+\toprule
+Datum & Milník & Způsob prezentace \\
+\midrule
+-- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\clearpage\appendix
+\section{Vymezení pojmů}
+
+\xxx{Definujte ne zcela obvyklé pojmy nutné k pochopení a správné interpretaci této specifikace.}
+
+\section{To Be Determined List}
+
+\xxx{Uveďte seznam částí specifikace, které nebylo možno rozhodnout a popsat do doby dokončení tohoto dokumentu a budou dospecifikovány později. Při standardním průběhu projektu by tato část měla být nepotřebná.}
+
+\end{document}
