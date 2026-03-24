@@ -51,11 +51,15 @@ Jméno & Datum & Důvod změny & Verze \\
 
 \subsection{Popis a zaměření softwarového díla}
 
-\xxx{Popište krátce specifikovaný software. Krátce zdůvodněte, proč jste se rozhodli ho implementovat, uveďte, co přinese nového, na jakou cílovou skupinu je zaměřen. Pokud existují alternativy, uveďte je a zdůvodněte, v čem se vaše řešení bude odlišovat}
+Software vzniklý v rámci projektu bude jednoduchý back-end překladače. Pro účely jehož implementace bude také definován vlastní mezikód (IR) vycházející z TAC (Three-address code). Back-end pak bude schopen pro vstup v podobě toho mezikódu vygenerovat ekvivalentní assembly pro architekturu X86. Z výsledného assembly bude následně pomocí assembleru a linkeru pro konkrétní platformu vygenerován spustitelný soubor. Za alternativu projektu je možné považovat LLVM, které nábízí právě vlastní IR a rozsáhlou na něj navázanou infrastrukturu pro tvrobu překladačů, primárně jejich back-endů. Předchozí práce s LLVM při tvorbě vlastního překladače, pak byla i hlavní motivací pro vznik celého projektu. Kdy jsem chtěl právě tuto externí závislost na robustním, ale komplexním nástroji jako je LLVM nahradit vlastní alternativou. Z čehož později po konzultaci s vedoucím projektu vzešla myšlenka vytvořit zjednodušenou alternativu právě k LLVM, která sloužila pro podobné projekty, pro než je LLVM příliš komplexním nástrojem, přípdaně nedokážou využít všech jím nabízených možností.
+
+%\xxx{Popište krátce specifikovaný software. Krátce zdůvodněte, proč jste se rozhodli ho implementovat, uveďte, co přinese nového, na jakou cílovou skupinu je zaměřen. Pokud existují alternativy, uveďte je a zdůvodněte, v čem se vaše řešení bude odlišovat}
 
 \subsection{Použité technologie }
 
-\xxx{Uveďte seznam nejdůležitějších technologií (např. knihovny, hardware atd.), které budete v rámci projektu využívat}
+Pro implementaci projektu bude využit programovací jazyk Haskell. Pro parsování textové reprezentace IR ze vstupního souboru bude využita Haskell knihovna Megaparsec pro tvorbu monádických parseru. Dále bude projekt využívat externí asembller a linker, pro převod vegenrovaných instrukcí v asemblly do podoby binárních objektů/spustitelných souborů pro konkrétní platformu/operační systém. 
+
+%\xxx{Uveďte seznam nejdůležitějších technologií (např. knihovny, hardware atd.), které budete v rámci projektu využívat}
 
 \subsection{Odkazy (Reference)}
 
@@ -69,7 +73,9 @@ Jméno & Datum & Důvod změny & Verze \\
 
 \subsection{Důvod vzniku softwarového díla a jeho základní části a cíle řešení}
 
-\xxx{Popište, proč má softwarové dílo vzniknout. Uveďte, zda se má jednat o samostatný produkt, rozšíření funkcionality, náhradu existujícího produktu nebo něco jiného. Pokud se jedná o součást většího systému, popište požadavky na tento systém, popřípadě požadavky na jeho začlenění do tohoto systému, popište rozhraní, které bude pro začlenění využito. Pokud bude systém složen z několika částí či vrstev, nakreslete jednoduchý diagram a popište funkce jednotlivých částí.}
+Jak již bylo řečeno úvodem primárním impulzem ke vzniku projektu byla práce s LLVM v rámci jiného projektu. Následovaná snahou primárně ze studijních důvodu LLVM nahradit vlastní implementací. Tato snaha eventuálně vyústila v myšlenku naimplementovat jednoduchý nástroj, který by nabízel zakladní funkcionalitu LLVM a mohl by být použit jako jeho alternativa pro obdobné malé a výukové projekty, které většinou využívají jen zlomek z nabízených možností, ale zároveň jsou zatíženy vysokou komplexností celého systému. Podobně jako LLVM bude projekt založen na vlastní IR a nástroji, který na nejím zakladě vygeneruje odpovídající asemblly pro cílovou architektůru (v tuto chvíli x86). Projekt pak bude možné využít jednak pro tvorbu zcela nových překladačů doplněním o front-endu generující IR projektu pro jazyk, pro nějž chce uživatel vytvořit překladač. Případně bude možné ho integrovat do již existujících projektů úpravou front-endu daného překladače a jím gnerovaného mezikódu, ať už jde LLVM IR v případě projektů využívajících LLVM, nebo třeba kombinátory v jazyce C, jako v případě již zmíněného MicroHs.
+
+%\xxx{Popište, proč má softwarové dílo vzniknout. Uveďte, zda se má jednat o samostatný produkt, rozšíření funkcionality, náhradu existujícího produktu nebo něco jiného. Pokud se jedná o součást většího systému, popište požadavky na tento systém, popřípadě požadavky na jeho začlenění do tohoto systému, popište rozhraní, které bude pro začlenění využito. Pokud bude systém složen z několika částí či vrstev, nakreslete jednoduchý diagram a popište funkce jednotlivých částí.}
 
 \subsection{Hlavní funkce}
 
