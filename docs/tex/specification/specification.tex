@@ -99,7 +99,11 @@ Podporovaným prostředím pro využití nástroje budou zařízení s architekt
 
 \subsection{Omezení díla}
 
-\xxx{Popište veškerá omezení, která mohou ovlivnit specifikaci a implementaci. To mohou být například licenční podmínky využívaných technologií, omezení daná rozhraním hardwarové platformy nebo software, se kterým má dílo spolupracovat, vyžadovaná bezpečnost, konvence již existujících částí v případě rozšiřování funkcionality atd. Další kategorií je závislost na třetích stranách, například nutnost poskytnutí práv na specifický stroj, přistup do sítě, poskytnutí dat apod.}
+Výsledný software by němel být předmětem zásadních omezení v podobě systémových, či licenčních podmínek. Hlavním omezením je v tomto ohledu rozhodnutí delegovat generování objektových souborů a jejich linkování na externí nástroje v podobě \textit{NASM} a \textit{ld}. Což má za následek nejen závislost projektu na těchto externích nástrojích, ale také nutnost využívat s nimi kompatibilní zápis x86 assembly, nebo nutnost \textit{NASM} nahradit zcela jiným assemblerem v případě rozšiřování projektu o podpru dalších architektur.
+
+Méně významným omezení je pak omezení na konkrétní překladačové frontendy, které by měly být s projektem integrovány. Aby tato interace byla možná, musí konkrétní frontend splnit požadované komunikační rozhraní. Tedy jeho výstupem musí být textová reprezentace IR definované v rámci projketu.
+
+%\xxx{Popište veškerá omezení, která mohou ovlivnit specifikaci a implementaci. To mohou být například licenční podmínky využívaných technologií, omezení daná rozhraním hardwarové platformy nebo software, se kterým má dílo spolupracovat, vyžadovaná bezpečnost, konvence již existujících částí v případě rozšiřování funkcionality atd. Další kategorií je závislost na třetích stranách, například nutnost poskytnutí práv na specifický stroj, přistup do sítě, poskytnutí dat apod.}
 
 \subsection{Dokumentace díla}
 
@@ -195,7 +199,9 @@ Ze stejných důvodů hraje d§ležitou roli i rozšiřitelnost projektu. Bylo b
 
 \section{Ostatní požadavky}
 
-\xxx{Specifikujte ostatní požadavky na dílo.}
+Jak již bylo zmíněno výše, jedním z hlavních požadavků na projket je jeho integrovatelnost s různými překladačovými frontendy. Z tohoto důvodu je požadavkem, aby v rámci projketu nevznikl pouze jednoduchý code geration nástroj, podporující základní optimalizace, ale také frontend, který tuto možnost integrace a realnou použitelnost projketu demonstroval.
+
+%\xxx{Specifikujte ostatní požadavky na dílo.}
 
 \section{Negativní vymezení}
 
@@ -204,7 +210,7 @@ Zaměřením projektu je čistě generování kódu, tedy vygenerovat x86 asembl
 
 \section{Time-line \& Milestones}
 
-\xxx{Specifikujte fáze definovatelné implementace --- takzvané milestones, milníky. Uveďte datum, kdy bude dosaženo milníku a způsob, kterým bude prezentován vašemu vedoucímu, například prezentací, předvedením, commitem do repository apod. Typický rozestup mezi milníky by měl být přibližně jeden měsíc. Nezapomeňte na dostatečné rezervy. Není snadné přesně odhadnout, kolik budete potřebovat na vypracování jednotlivých částí času --- programátoři často podceňují časové nároky třikrát i více!}
+%\xxx{Specifikujte fáze definovatelné implementace --- takzvané milestones, milníky. Uveďte datum, kdy bude dosaženo milníku a způsob, kterým bude prezentován vašemu vedoucímu, například prezentací, předvedením, commitem do repository apod. Typický rozestup mezi milníky by měl být přibližně jeden měsíc. Nezapomeňte na dostatečné rezervy. Není snadné přesně odhadnout, kolik budete potřebovat na vypracování jednotlivých částí času --- programátoři často podceňují časové nároky třikrát i více!}
 
 \begin{center}
 \begin{tabular}{lll}
@@ -213,7 +219,10 @@ Zaměřením projektu je čistě generování kódu, tedy vygenerovat x86 asembl
 \toprule
 Datum & Milník & Způsob prezentace \\
 \midrule
--- & -- & -- \\
+30.6.2026 & Definování podoby IR a její parsování & Commit/konzultace s vedoucím \\
+31.7.2026 & Základní code generation & Commit/konzultace s vedoucím \\
+20.8.2026 & Komplentní code generation s optimalizacemi & Commit/konzultace s vedoucím \\
+15.9.2026 & Frontend a jeho integrace s code generation & Commit/konzultace s vedoucím \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -224,8 +233,10 @@ Datum & Milník & Způsob prezentace \\
 IR - Zjednodušený mezikód, na nějž je překládaný kód převeden frontendem překladače, a slouží jako univerzální na jazyce nezávislá reprezentace, která funguje jako rozhraní mezi backendem a frontendem překladače.
 %\xxx{Definujte ne zcela obvyklé pojmy nutné k pochopení a správné interpretaci této specifikace.}
 
+\iffalse # Maybe IR format specification, but that isn't inherit part of project specification 
 \section{To Be Determined List}
 
 \xxx{Uveďte seznam částí specifikace, které nebylo možno rozhodnout a popsat do doby dokončení tohoto dokumentu a budou dospecifikovány později. Při standardním průběhu projektu by tato část měla být nepotřebná.}
+\fi
 
 \end{document}
