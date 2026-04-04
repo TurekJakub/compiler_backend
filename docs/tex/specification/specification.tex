@@ -8,6 +8,7 @@
 \usepackage{plex-otf}
 \usepackage{booktabs}
 \usepackage{xcolor}
+\usepackage{hyperref}
 
 % pomůcka pro "TODO" -- před odevzdáním ji odmažte.
 \def\xxx#1{\textcolor{red!50}{\itshape #1}}
@@ -145,19 +146,29 @@ Posledním softwarovým rozhraním projektu je rozhraní mezi backendem a linker
 
 \section{Detailní popis funkcionality}
 
-\xxx{Tato část má za účel popsat detailně jednotlivé části funkcionality. Následující část bude v dokumentu tolikrát, kolikrát je to potřeba. Součástí popisu funkcionality je i popis reakce na chybové stavy.}
+%\xxx{Tato část má za účel popsat detailně jednotlivé části funkcionality. Následující část bude v dokumentu tolikrát, kolikrát je to potřeba. Součástí popisu funkcionality je i popis reakce na chybové stavy.}
 
 \subsection{Mezikód a jeho parsování}
 
-\xxx{Nadpis ``Funkce 1'' přepište na název funkcionality, kterou chcete popisovat a popište tuto funkci programu.}
+V rámci projektu bude definován vlastní mezikód (IR), který bude sloužit jako vstup samotného nástroje. Cílem projektu je vyzkoušet různé alternativní způsoby rezprezentace k reprezentaci využívané v rámci projektu LLVM. Definovaný mezikód bude pravďepodobně do jisté míry vycházet Three-address code formátu. 
 
-\subsection{Codegenration}
+Jednou z uvažovaných možností reprezentace je reprezentovat celý překládaný kód pomocí bloků instrukcí a control flow v kódu pak modelovat přímo jako operace nad instruction pointer registrem (tedy jako inkrementaci/dekrementaci instruction counteru o velikost příslušných bloků instrukcí). Takovýto přístup by měl negativní dopad na provádění řady optimalizací používaných právě LLVM a dalšími běžnými překladači, ale mohl by potenciálně zejednodušit IR a reprezentaci control flow v jejím rámci.
 
-\xxx{Nadpis ``Funkce 2'' přepište na název funkcionality, kterou chcete popisovat a popište tuto funkci programu.}
+V případě, že by se žádný z alternativních přístupů neukázal jako dostatečně efetivní, navrátil by se projekt ke standardně využívané formě reprezentace pomocí mezikódu složeného z basic bloků v static single-assignment formě a reprezentaci control flow pomomcí final instruction specifies the jump.
 
-\subsection{Optimalizace}
+Aby bylo možné s kódem zapsaným pomocí takto definované reprezentace dále pracovat, je nutné v rámci projketu napsat také parser a serializer, který umožní efektivní převádění z a do textového zápisu. Parser by zároveň měl dokázat uživatele smysluplně upozornit na syntaktické chyby v textovém zápisu reprezentace, tak aby bylo snadné opravit případné chyby v jejím gnerování.
 
-\xxx{Popište stejným způsobem další funkce programu.}
+\subsection{Code genration a optimalizace}
+
+Klíčovou funkcí je pak samotné generování x86 instrukcí na základě vstupního mezikód. Nástroj v rámci tohoto kroku provede standardní úkony v podobě výběru instrukcí jejich plánování a alokace registrů. Výstupem tohoto kroku pak nubude přímo object file, ale jak již bylo řečeno x86 assembly využívající Intel syntaxi a pro jeho převod do podoby objektového soubru bude využito externích nástrojů.
+
+Překladač by v rámci thoto kroku měl provést taky základní optimalizace jako je constant folding and proopagation, dead code elimination, common subexpression elimination a podbně, které nejsou závislé přímo na cílové platformě. Tyto optimalizace by pak z důvodu usnadnění derivace variant pro jiné architektury než je x86 měli být implementovány na úrovni mezikódu ještě před samotným kóde generation tak, aby jejich implementace zůstala nezávislá na konkrétní architektuře. 
+
+\subsection{Překladačový frontend}
+
+Posledním z větších problémů k vyřešení v rámci projektu je tvorba jednoduchého frontendu překladače, s jehož pomocí by bylo možné demonstrovat funkčnost projektu a jeho využití k tvorbě jednoduchého plnohodnotného překladače pro konkrétní jazyk.
+
+V rámci této části bych chtěl integraci s frontendem domonstrovat na svém \href{https://gitlab.mff.cuni.cz/turekja5/compiler_frontend}{starším projektu} jednoduchého frontendu pro vlatní toy language napsaném v jazyce OCaml, který v současné chvíli jako backend využívá právě LLVM. Modifikace tohot projektu tak, aby namísto LLVM IR generoval IR definovanou v rámci projektu, by tedy mohla být dobrou ukázkou jak vyvýjený nástroj integrovat do již existujícího projektu, která by vzhledem k povaze projektu byla i dostatečně jednoduchá. Případně by bylo možné modifikovat již zmíněny překladač jazyka Haskell MicroHs, tak aby tento projekt využíval jako backend namísto dosavadního řešení s použitím combinátorů v jazyce C. 
 
 \section{Ostatní (mimofunkční) požadavky}
 
@@ -188,7 +199,7 @@ Ze stejných důvodů hraje d§ležitou roli i rozšiřitelnost projektu. Bylo b
 
 \section{Negativní vymezení}
 
-Zaměřením projektu je čistě generování kódu, tedy vygenerovat x86 asemblly odpovídající vstupnímu programu zapsanému v IR. Projekt se tak nazabývá jednotlivými formáty objektových soubor ani jejich generování. Stejným způsobem se projekt nezabývá ani linkováním objektových souboru do podoby spustitelných souborů a formáty těchto souborů používaných jednotlivými operačními systémy. V řešení těchto podproblému projekt spoléhá čistě na externí nástroje \textit{NASM} a \textit{it}.
+Zaměřením projektu je čistě generování kódu, tedy vygenerovat x86 asemblly odpovídající vstupnímu programu zapsanému v IR. Projekt se tak nazabývá jednotlivými formáty objektových soubor ani jejich generování. Stejným způsobem se projekt nezabývá ani linkováním objektových souboru do podoby spustitelných souborů a formáty těchto souborů používaných jednotlivými operačními systémy. V řešení těchto podproblému projekt spoléhá čistě na externí nástroje \textit{NASM} a \textit{ld}.
 %\xxx{Uveďte, co není součástí tohoto díla a mohlo by to být implicitně předpokládáno.}
 
 \section{Time-line \& Milestones}
