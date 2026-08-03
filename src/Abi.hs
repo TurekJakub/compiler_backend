@@ -1,0 +1,27 @@
+module Abi (module Abi) where 
+import Ir (LabelName)
+
+data RegisterType = GeneralPurpose deriving (Enum, Show, Eq)
+
+data Register = Register {
+    regName :: String,
+    regType :: RegisterType
+} deriving (Show, Eq)
+
+type Immediate = Int
+
+data RiscVInst
+  = RV_Lw   Register Register Immediate  
+  | RV_Sd   Register Register Immediate  
+  | RV_Add  Register Register Register  
+  | RV_Addi Register Register Immediate 
+  | RV_Slt  Register Register Register 
+  | RV_Jal  Register LabelName          
+  | RV_J    LabelName                    
+  | RV_Beq  Register Register LabelName 
+  | RV_Label LabelName
+  deriving (Show)
+
+data X86Inst = TBD deriving(Show)
+
+data Inst = InstRV RiscVInst | InstX86 X86Inst deriving (Show)

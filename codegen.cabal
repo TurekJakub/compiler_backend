@@ -19,8 +19,8 @@ common warnings
 executable codegen
     import:           warnings
     main-is:          Main.hs
-    -- other-modules:
+    other-modules: Ir, Abi, Codegen
     -- other-extensions:
-    build-depends:    base >= 4.19 && < 4.23
+    build-depends:    base >= 4.19 && < 4.23, containers, mtl
     hs-source-dirs:   src
     default-language: GHC2024
