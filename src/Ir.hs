@@ -1,9 +1,11 @@
-module Ir (module Ir) where
+module Ir
+  ( module Ir
+  ) where
 
 data Literal
   = IntLiteral (Int)
   | CharLiteral (Char)
-  deriving (Show)
+  deriving (Show, Eq, Ord)
 
 type LabelName = String
 
@@ -34,9 +36,9 @@ data FunctionDef = FunctionDef
   , body :: [IrToken]
   } deriving (Show)
 
-type Program = [FunctionDef] 
+type Program = [FunctionDef]
 
 -- Maybe later :)
-data BasicBlock = BasicBlock{
-    instructions:: [IrToken]
-} deriving (Show)
+data BasicBlock = BasicBlock
+  { instructions :: [IrToken]
+  } deriving (Show)

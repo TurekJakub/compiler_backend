@@ -21,6 +21,6 @@ executable codegen
     main-is:          Main.hs
     other-modules: Ir, Abi, Codegen
     -- other-extensions:
-    build-depends:    base >= 4.19 && < 4.23, containers, mtl
+    build-depends:    base >= 4.19 && < 4.23, containers, mtl, optics
     hs-source-dirs:   src
     default-language: GHC2024
