@@ -21,6 +21,10 @@ emitInstRvAssembly (RV_Li rd imm) =
   "li " ++ regName rd ++ ", " ++ show imm
 emitInstRvAssembly (RV_Sbw rd rs1 rs2) =
   "subw " ++ regName rd ++ ", " ++ regName rs1 ++ ", " ++ regName rs2
+emitInstRvAssembly (RV_Beq rs1 rs2 target) = 
+  "beq " ++ regName rs1 ++ ", " ++ regName rs2 ++ ", " ++ show target
+emitInstRvAssembly (RV_J target) =
+  "j " ++ show target
 emitInstRvAssembly _ = "#TBD"
 
 emitAssembly :: [Inst] -> String
