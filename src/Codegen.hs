@@ -6,7 +6,7 @@
 module Codegen (module Codegen) where
 import Abi
 import qualified Data.Map as Map
-import Ir (IrToken (Add, Peek, IrLiteral), Literal (..))
+import Ir (IrToken (Add, Peek, IrLiteral, Label, ConditionalBranch, Branch), Literal (..))
 
 import Data.Map (Map)
 import Control.Monad.State
@@ -53,8 +53,8 @@ codegenToken (Peek offset) = do
         [] -> error "Spill out of registers!"
  
 codegenToken Add = do
-  codgenState <- get
-  case virtualStack codgenState of
+  vStack <- use #virtualStack
+  case vStack  of
     (Reg r1 : Reg r2 : stackRest) -> do 
         freeRegister r1
         #virtualStack .= (Reg r2 : stackRest)
@@ -76,6 +76,36 @@ codegenToken Add = do
     _ -> error "Cannot emit add code for non-numerical values"
 
 
+codegenToken (Label label) = do
+  blockChangeHelper
+  emit (InstRV (RV_Label label))
+
+codegenToken (Branch label) = do
+  blockChangeHelper
+  emit (InstRV (RV_J label))
+
+codegenToken (ConditionalBranch lbl) = do
+  vStack <- use #virtualStack
+  case vStack of
+    (Reg r : []) -> do
+      #virtualStack .= []
+      freeRegister r
+      invalidateCache
+      emit (InstRV (RV_Beq r zeroRegister lbl))
+
+    (Immediate (IntLiteral val) : []) -> do
+      #virtualStack .= []
+      if val == 0
+        then do
+          invalidateCache
+          emit (InstRV (RV_J lbl))
+        else 
+          return ()
+          
+    [] -> error "Stack underflow: nothing to evaluate for ConditionalBranch"
+    _  -> error "Invalid stack value for ConditionalBranch"
+
+
 codegenToken _ = return ()
 
 codgen :: [IrToken] -> CodegenState -> [Inst]
@@ -95,12 +125,23 @@ invalidateCacheLine :: VStackItem -> State CodegenState ()
 invalidateCacheLine invalLine =do 
   #cache %= Map.filter (\line -> line /= invalLine)
 
+invalidateCache :: State CodegenState ()
+invalidateCache = #cache .= Map.empty
 
 freeRegister :: Register -> State CodegenState ()
 freeRegister reg = do
   #freeRegisters %= (reg :)
   invalidateCacheLine(Reg reg)
 
+{- Enforce strict empty stack on basic block change invariant for now
+   TODO: implement more mature solution that would required only same hight and values 'compatibility' -}
+blockChangeHelper :: State CodegenState ()
+blockChangeHelper = do
+  vStack <- use #virtualStack
+  if length vStack > 0 then
+    error "Stack must be empty when changing block"
+  else
+    invalidateCache
 
 addLiterals :: Literal -> Literal -> Maybe Literal
 addLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral (a + b))
