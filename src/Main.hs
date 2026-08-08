@@ -6,10 +6,10 @@ import Abi (Register(..), RegisterType(GeneralPurpose))
 import Asm (emitAssembly)
 import Codegen (CodegenState(..), codgen)
 import qualified Data.Map as Map
-import Ir (IrToken(Add, IrLiteral, Peek), Literal(IntLiteral))
+import Ir (IrToken(Add, IrLiteral, Peek, Mul, Sub), Literal(IntLiteral))
 
 testInput :: [IrToken]
-testInput = [Peek 8, IrLiteral (IntLiteral 42), Add]
+testInput = [Peek 8, IrLiteral (IntLiteral 42), Add, IrLiteral (IntLiteral 7), Sub, IrLiteral (IntLiteral 42), Mul]
 
 testFreeRegisters :: [Register]
 testFreeRegisters =

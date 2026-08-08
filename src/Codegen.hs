@@ -6,7 +6,7 @@
 module Codegen (module Codegen) where
 import Abi
 import qualified Data.Map as Map
-import Ir (IrToken (Add, Peek, IrLiteral, Label, ConditionalBranch, Branch), Literal (..))
+import Ir (IrToken (Add, Peek, IrLiteral, Label, ConditionalBranch, Branch, Sub, Mul), Literal (..))
 
 import Data.Map (Map)
 import Control.Monad.State
@@ -52,29 +52,46 @@ codegenToken (Peek offset) = do
           emit (InstRV (RV_Lw nextReg spRegister offset))
         [] -> error "Spill out of registers!"
  
-codegenToken Add = do
-  vStack <- use #virtualStack
-  case vStack  of
-    (Reg r1 : Reg r2 : stackRest) -> do 
-        freeRegister r1
-        #virtualStack .= (Reg r2 : stackRest)
-        invalidateCacheLine $ Reg r2
-        emit (InstRV (RV_Add r2 r2 r1))
-    (Immediate i1 : Immediate i2 : stackRest) -> 
-      case addLiterals i1 i2 of
-        Just litSum -> #virtualStack .= (Immediate litSum) : stackRest
-        Nothing -> error "Tries to sum non numerical literals"
-    (Reg r1 : Immediate (IntLiteral i1) : stackRest) -> do
-        #virtualStack .= (Reg r1 : stackRest)
-        invalidateCacheLine $ Reg r1
-        emit (InstRV $ RV_Addi r1 r1 i1)
-    (Immediate (IntLiteral i1) : Reg r1 : stackRest) -> do
-        #virtualStack .= (Reg r1 : stackRest)
-        invalidateCacheLine $ Reg r1
-        emit (InstRV $ RV_Addi r1 r1 i1)
-    l | length l < 2 -> error "Stack underflow: there is not enough values to compute sum"
-    _ -> error "Cannot emit add code for non-numerical values"
+codegenToken Add =
+  let addiEmitter = \r1 i1 -> emit (InstRV $ RV_Addi r1 r1 i1) in
+  let addDef = 
+        BinOpDef
+          { regRegInst    = \r1 r2 r3-> InstRV $ RV_Add r1 r2 r3
+          , immediateFolding   = mulLiterals
+          , regToImmInst  = addiEmitter
+          , immToRegInst  = addiEmitter
+          , regOnlyInst = False
+          , underflowErrMsg  = "Stack underflow: there is not enough values to compute sum"
+          , generalErrMsg = "Tries to sum non numerical literals"
+          }
+  in codegenBinOpHelper addDef
 
+codegenToken Sub = 
+  let subDef = 
+        BinOpDef
+          { regRegInst    = \r1 r2 r3-> InstRV $ Rv_Mulw r1 r2 r3
+          , immediateFolding   = mulLiterals
+          , regToImmInst  = \r1 i1 -> do emit (InstRV $ RV_Sbw r1 zeroRegister r1)
+                                         emit (InstRV $ RV_Addi r1 r1 i1)
+          , immToRegInst  = \r1 i1 -> emit (InstRV $ RV_Addi r1 r1 (-i1))
+          , regOnlyInst = False
+          , underflowErrMsg  = "Stack underflow: there is not enough values to compute difference"
+          , generalErrMsg = "Tries to subtract non numerical literals"
+          }
+  in codegenBinOpHelper subDef
+
+codegenToken Mul = 
+  let mulDef = 
+        BinOpDef
+          { regRegInst    = \r1 r2 r3-> InstRV $ Rv_Mulw r1 r2 r3
+          , immediateFolding   = mulLiterals
+          , regToImmInst  = \_ _ -> emit (InstRV $ Rv_Nop)
+          , immToRegInst  = \_ _ -> emit (InstRV $ Rv_Nop)
+          , regOnlyInst = True
+          , underflowErrMsg  = "Stack underflow: there is not enough values to compute product"
+          , generalErrMsg = "Tries to multiply non numerical literals"
+          }
+  in codegenBinOpHelper mulDef
 
 codegenToken (Label label) = do
   blockChangeHelper
@@ -105,7 +122,6 @@ codegenToken (ConditionalBranch lbl) = do
     [] -> error "Stack underflow: nothing to evaluate for ConditionalBranch"
     _  -> error "Invalid stack value for ConditionalBranch"
 
-
 codegenToken _ = return ()
 
 codgen :: [IrToken] -> CodegenState -> [Inst]
@@ -119,7 +135,6 @@ codgen inputIr initState =
 
 emit :: Inst -> State CodegenState ()
 emit inst = #emittedCode %= (inst :)
-
 
 invalidateCacheLine :: VStackItem -> State CodegenState ()
 invalidateCacheLine invalLine =do 
@@ -143,7 +158,77 @@ blockChangeHelper = do
   else
     invalidateCache
 
+forceImmediateToReg :: Immediate -> State CodegenState Register
+forceImmediateToReg i = do
+    cachedReg <- use (#cache % at (Const i))
+    case cachedReg of
+      Just (Reg r) -> pure r
+      _ -> do 
+        freeRegs <- use #freeRegisters
+        case freeRegs of
+          (free : rest) -> do
+            #freeRegisters .= rest
+            #cache % at (Const i) .= Just (Reg free)
+            emit (InstRV $ RV_Li free i)
+            pure free
+          _ -> error "Spill" -- TODO: Handle this
+
+type CodegenBinOpRegAndIme = Register -> Immediate -> State CodegenState()
+data BinOpDef = BinOpDef
+  {
+    regRegInst :: Register -> Register -> Register -> Inst,
+    immediateFolding :: Literal -> Literal -> Maybe Literal,
+    regToImmInst ::  CodegenBinOpRegAndIme,
+    immToRegInst ::  CodegenBinOpRegAndIme,
+    regOnlyInst :: Bool,
+    underflowErrMsg :: String,
+    generalErrMsg :: String
+  }  deriving (Generic)
+
+codegenBinOpHelper :: BinOpDef ->  State CodegenState ()
+codegenBinOpHelper def = do
+  vStack <- use #virtualStack
+  case vStack  of
+    (Reg r1 : Reg r2 : stackRest) -> do 
+        freeRegister r1
+        #virtualStack .= (Reg r2 : stackRest)
+        invalidateCacheLine $ Reg r2
+        emit $ (def ^. #regRegInst) r2 r2 r1
+    (Immediate i1 : Immediate i2 : stackRest) -> 
+      case (def ^. #immediateFolding) i1 i2 of
+        Just litSum -> #virtualStack .= (Immediate litSum) : stackRest
+        Nothing -> error $ def ^. #generalErrMsg -- "Tries to sum non numerical literals"
+    (Reg r1 : Immediate (IntLiteral i1) : stackRest) -> do
+        let newStack = (\r -> Reg r1 : Reg r : stackRest)
+        handleImmediate r1 i1 stackRest newStack (def ^. #regToImmInst)
+    (Immediate (IntLiteral i1) : Reg r1 : stackRest) -> do
+      let newStack = (\r -> Reg r : Reg r1 : stackRest)
+      handleImmediate r1 i1 stackRest newStack (def ^. #immToRegInst)
+    l | length l < 2 -> error $ def ^. #underflowErrMsg
+    _ -> error $ def ^. #generalErrMsg
+  where handleImmediate r1 i1 stackRest newStack instEmitter = 
+          if is12BitsImm i1 && not  (def ^. #regOnlyInst)
+          then do
+            #virtualStack .= (Reg r1 : stackRest)
+            invalidateCacheLine $ Reg r1
+            instEmitter r1  i1
+          else do
+            r2 <- forceImmediateToReg i1
+            #virtualStack .= newStack r2
+            codegenBinOpHelper def
+
+is12BitsImm :: Immediate -> Bool
+is12BitsImm i = i >= -2048 && i <= 2047
+
 addLiterals :: Literal -> Literal -> Maybe Literal
 addLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral (a + b))
 addLiterals _ _ = Nothing
+
+subLiterals :: Literal -> Literal -> Maybe Literal
+subLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral (a - b))
+subLiterals _ _ = Nothing
+
+mulLiterals :: Literal -> Literal -> Maybe Literal
+mulLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral (a * b))
+mulLiterals _ _ = Nothing
 

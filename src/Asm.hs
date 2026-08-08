@@ -2,7 +2,7 @@ module Asm
   ( module Asm
   ) where
 
-import Abi (Inst(InstRV), Register(regName), RiscVInst(RV_Add, RV_Addi, RV_Lw))
+import Abi (Inst(InstRV), Register(regName), RiscVInst(RV_Add, RV_Addi, RV_Lw, Rv_Mulw, RV_Li, RV_Sbw, RV_Beq, RV_J))
 
 emitInstAssembly :: Inst -> String
 emitInstAssembly (InstRV inst) = emitInstRvAssembly inst
@@ -12,9 +12,15 @@ emitInstRvAssembly :: RiscVInst -> String
 emitInstRvAssembly (RV_Lw rd rs imm) =
   "ld " ++ regName rd ++ ", " ++ show imm ++ "(" ++ regName rs ++ ")"
 emitInstRvAssembly (RV_Addi rd rs imm) =
-  "addi " ++ regName rd ++ ", " ++ regName rs ++ ", " ++ show imm
+  "addiw " ++ regName rd ++ ", " ++ regName rs ++ ", " ++ show imm
 emitInstRvAssembly (RV_Add rd rs1 rs2) =
-  "add " ++ regName rd ++ ", " ++ regName rs1 ++ ", " ++ regName rs2
+  "addw " ++ regName rd ++ ", " ++ regName rs1 ++ ", " ++ regName rs2
+emitInstRvAssembly (Rv_Mulw rd rs1 rs2) =
+  "mulw " ++ regName rd ++ ", " ++ regName rs1 ++ ", " ++ regName rs2
+emitInstRvAssembly (RV_Li rd imm) = 
+  "li " ++ regName rd ++ ", " ++ show imm
+emitInstRvAssembly (RV_Sbw rd rs1 rs2) =
+  "subw " ++ regName rd ++ ", " ++ regName rs1 ++ ", " ++ regName rs2
 emitInstRvAssembly _ = "#TBD"
 
 emitAssembly :: [Inst] -> String

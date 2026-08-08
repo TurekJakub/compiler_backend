@@ -29,6 +29,15 @@ data IrToken
       { label :: LabelName
       }
   | Add
+  | Mul
+  | Sub
+  | Div
+  | Mod
+  | Lt
+  | Lte
+  | Gt
+  | Gte
+  | Eq
   deriving (Show)
 
 data FunctionDef = FunctionDef
