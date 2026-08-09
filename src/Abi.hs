@@ -19,7 +19,8 @@ data RiscVInst
   | RV_Slt  Register Register Register 
   | RV_Jal  Register LabelName          
   | RV_J    LabelName     
-  | RV_Call LabelName               
+  | RV_Call LabelName        
+  | RV_Ret       
   | RV_Beq  Register Register LabelName 
   | RV_Label LabelName
   | RV_Sbw Register Register Register
@@ -34,3 +35,18 @@ data Inst = InstRV RiscVInst | InstX86 X86Inst deriving (Show)
 
 rvSpAlignment :: Int
 rvSpAlignment = 16
+
+rvTmpRegisters :: [Register]
+rvTmpRegisters =  map (\n -> Register ("t" ++ show n) GeneralPurpose) ([0 .. 6] :: [Int])
+
+rvSpRegister :: Register
+rvSpRegister = Register "sp" GeneralPurpose
+
+rvRaRegister :: Register
+rvRaRegister = Register "ra" GeneralPurpose
+
+rvZeroRegister :: Register
+rvZeroRegister = Register "zero" GeneralPurpose
+
+rvA0Register:: Register
+rvA0Register = Register "a0" GeneralPurpose

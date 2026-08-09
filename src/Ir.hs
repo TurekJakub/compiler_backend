@@ -1,6 +1,11 @@
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedLabels #-}
+
 module Ir
   ( module Ir
   ) where
+import GHC.Generics (Generic)
 
 data Literal
   = IntLiteral (Int)
@@ -49,16 +54,16 @@ data FuncTypeSignature =  FuncTypeSignature
   {
     argTypes :: [IrType],
     returnType :: IrType
-  } deriving(Show)
+  } deriving(Show, Generic)
 data FunctionPrototype = FunctionPrototype
-  { name:: String,
+  { name:: LabelName,
     signature :: FuncTypeSignature
-  } deriving (Show)
+  } deriving (Show, Generic)
 
 data FunctionDef = FunctionDef
   { prototype :: FunctionPrototype
   , body :: [IrToken]
-  } deriving (Show)
+  } deriving (Show, Generic)
 
 type Program = [FunctionDef]
 

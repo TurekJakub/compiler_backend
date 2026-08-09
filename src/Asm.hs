@@ -2,7 +2,7 @@ module Asm
   ( module Asm
   ) where
 
-import Abi (Inst(InstRV), Register(regName), RiscVInst(RV_Add, RV_Addi, RV_Lw, Rv_Mulw, RV_Li, RV_Sbw, RV_Beq, RV_J, RV_Call, Rv_Mv))
+import Abi (Inst(InstRV), Register(regName), RiscVInst(RV_Add, RV_Addi, RV_Lw, Rv_Mulw, RV_Li, RV_Sbw, RV_Beq, RV_J, RV_Call, Rv_Mv, RV_Label, RV_Ret, RV_Sd))
 
 emitInstAssembly :: Inst -> String
 emitInstAssembly (InstRV inst) = emitInstRvAssembly inst
@@ -29,6 +29,12 @@ emitInstRvAssembly (RV_Call target) =
   "call " ++ show target
 emitInstRvAssembly (Rv_Mv rd rs) =
   "mv " ++ regName rd ++ ", " ++ regName rs
+emitInstRvAssembly (RV_Label label) =
+  show label ++ ":"
+emitInstRvAssembly RV_Ret = 
+  "ret"
+emitInstRvAssembly (RV_Sd rs1 rs2 imm) =
+  "sd " ++ regName rs1 ++ ", " ++ show imm ++ "(" ++ regName rs2 ++ ")"
 emitInstRvAssembly _ = "#TBD"
 
 emitAssembly :: [Inst] -> String

@@ -6,7 +6,7 @@
 module Codegen (module Codegen) where
 import Abi
 import qualified Data.Map as Map
-import Ir (IrToken (Add, Peek, IrLiteral, Label, ConditionalBranch, Branch, Sub, Mul, FunctionCall), Literal (..), FuncTypeSignature (..))
+import Ir (IrToken (Add, Peek, IrLiteral, Label, ConditionalBranch, Branch, Sub, Mul, FunctionCall), Literal (..), FuncTypeSignature (..), FunctionDef (body, prototype), FunctionPrototype (signature, name), Program)
 
 import Data.Map (Map)
 import Control.Monad.State
@@ -14,7 +14,7 @@ import Control.Monad.State
 import Optics
 import Optics.State.Operators ((%=),(.=))
 import GHC.Generics (Generic)
-import Control.Monad (when, forM_, zipWithM_, zipWithM)
+import Control.Monad (when, forM_)
 import Data.Bits ((.&.))
 
 data CacheKey = Slot Int | Const Int deriving (Show, Eq, Ord)
@@ -29,12 +29,6 @@ data CodegenState = CodegenState
   , emittedCode   :: [Inst]
   } deriving (Show, Generic)
 
-
-spRegister :: Register
-spRegister = Register "sp" GeneralPurpose
-
-zeroRegister :: Register
-zeroRegister = Register "zero" GeneralPurpose
 
 codegenToken :: IrToken -> State CodegenState ()
 codegenToken (IrLiteral lit)  = #virtualStack %= (Immediate lit :)
@@ -52,7 +46,7 @@ codegenToken (Peek offset) = do
           #virtualStack  %= (Reg nextReg :)
           #cache % at (Slot offset) .= Just (Reg nextReg)
 
-          emit (InstRV (RV_Lw nextReg spRegister offset))
+          emit (InstRV (RV_Lw nextReg rvSpRegister offset))
         [] -> error "Spill out of registers!"
  
 codegenToken Add =
@@ -74,7 +68,7 @@ codegenToken Sub =
         BinOpDef
           { regRegInst    = \r1 r2 r3-> InstRV $ Rv_Mulw r1 r2 r3
           , immediateFolding   = mulLiterals
-          , regToImmInst  = \r1 i1 -> do emit (InstRV $ RV_Sbw r1 zeroRegister r1)
+          , regToImmInst  = \r1 i1 -> do emit (InstRV $ RV_Sbw r1 rvZeroRegister r1)
                                          emit (InstRV $ RV_Addi r1 r1 i1)
           , immToRegInst  = \r1 i1 -> emit (InstRV $ RV_Addi r1 r1 (-i1))
           , regOnlyInst = False
@@ -111,7 +105,7 @@ codegenToken (ConditionalBranch lbl) = do
       #virtualStack .= []
       freeRegister r
       invalidateCache
-      emit (InstRV (RV_Beq r zeroRegister lbl))
+      emit (InstRV (RV_Beq r rvZeroRegister lbl))
 
     (Immediate (IntLiteral val) : []) -> do
       #virtualStack .= []
@@ -125,14 +119,14 @@ codegenToken (ConditionalBranch lbl) = do
     [] -> error "Stack underflow: nothing to evaluate for ConditionalBranch"
     _  -> error "Invalid stack value for ConditionalBranch"
 
-codegenToken (FunctionCall name) = do
-  signature <- use (#knowFuncDef % at name)
-  case signature of
+codegenToken (FunctionCall funcName) = do
+  funcSignature <- use (#knowFuncDef % at funcName)
+  case funcSignature of
     Just (FuncTypeSignature argsTypes retType) -> do
       vStack <- use #virtualStack
       let argsCount = (length argsTypes)
       when (length vStack < argsCount) $ error $ 
-        "Stack underflow: not enough args to call function " ++ name ++ " expected " ++ show argsCount ++ " got " ++ show (length vStack)
+        "Stack underflow: not enough args to call function " ++ funcName ++ " expected " ++ show argsCount ++ " got " ++ show (length vStack)
 
       let (args, stackRest) = splitAt (length argsTypes) vStack
       #virtualStack .= stackRest
@@ -144,7 +138,7 @@ codegenToken (FunctionCall name) = do
       
       handleMemArgs memArgs
 
-      emitCall name
+      emitCall funcName
 
       restoreSp $ length memArgs
 
@@ -176,7 +170,7 @@ codegenToken (FunctionCall name) = do
                   _ -> return Nothing
             case regToPush of 
               Just reg -> do 
-                emit (InstRV $ RV_Sd reg spRegister physicalStackOffset)
+                emit (InstRV $ RV_Sd reg rvSpRegister physicalStackOffset)
                 freeRegister reg
               Nothing ->  error "Type not implemented yet"
           restoreSp memArgsCount = 
@@ -185,14 +179,62 @@ codegenToken (FunctionCall name) = do
 
 codegenToken _ = return ()
 
-codgen :: [IrToken] -> CodegenState -> [Inst]
-codgen inputIr initState = 
-  let compilation = mapM_ codegenToken inputIr in
+{- Improve this in the future - for now only eight arguments passed via registers are supported
+   TODO: add support for passing args via stack - should be fixed together with registers spilling implementation 
+ -}
+codegenFuncDefinition :: FunctionDef ->  Map String FuncTypeSignature -> [Inst]
+codegenFuncDefinition funcDef  knowFuncDefs = 
+  let argsCount = length $ (view (#prototype % #signature % #argTypes) funcDef) 
+      frameSize = 16
+      frameOffset = 8
 
-  let codegenResult = execState compilation initState in
-  
-  reverse (emittedCode codegenResult)
+      initialStack = [ Reg (Register ("a" ++ show i) GeneralPurpose) | i <- ([0..(min argsCount 8) -1] :: [Int]) ]
+      
+      initialCache = Map.fromList [ (Slot i, item) | (i, item) <- zip [0..] initialStack ]
 
+      initState = CodegenState
+        { virtualStack  = initialStack   
+        , freeRegisters = rvTmpRegisters
+        , cache         = initialCache
+        , emittedCode   = []
+        , knowFuncDef  = knowFuncDefs
+        }
+      
+      compilation = do
+        emit (InstRV $ RV_Label (view (#prototype % #name) funcDef))
+        bumpSp (-frameSize)
+        emit (InstRV (RV_Sd rvRaRegister rvSpRegister frameOffset))
+
+      
+        mapM_ codegenToken (body funcDef)
+
+        vStack <- use #virtualStack
+        {- This should be also reworked with register spilling -}
+        case vStack of
+          [item] ->
+            case item of 
+              Reg r -> do emit (InstRV (RV_Addi rvA0Register r 0))
+                          freeRegister r
+              Immediate (IntLiteral i) -> do 
+                  tmp <- forceImmediateToReg i
+                  emit (InstRV $ Rv_Mv rvA0Register tmp)
+                  freeRegister tmp
+              _ -> error "Only Int literals supported yet"
+          _ -> error $ "Function must leave exactly one value at stack"
+
+        emit (InstRV (RV_Lw rvRaRegister rvSpRegister frameOffset))
+        bumpSp (frameSize)
+        emit (InstRV RV_Ret)
+
+      codegenResult = execState compilation initState in
+
+    reverse (emittedCode codegenResult)
+
+codgen :: Program  -> [Inst]
+codgen program = 
+  let knowFuncDefs = collectFunctionDefs program 
+      codegenResult = map (flip codegenFuncDefinition knowFuncDefs)  program
+  in concat .  reverse $  codegenResult
 
 emit :: Inst -> State CodegenState ()
 emit inst = #emittedCode %= (inst :)
@@ -208,7 +250,7 @@ bumpSp bytes =
         bytes
       else
         alignTo rvSpAlignment bytes
-  in emit (InstRV $ RV_Addi spRegister spRegister bumpBy)
+  in emit (InstRV $ RV_Addi rvSpRegister rvSpRegister bumpBy)
 
 invalidateCacheLine :: VStackItem -> State CodegenState ()
 invalidateCacheLine invalLine =do 
@@ -295,6 +337,10 @@ codegenBinOpHelper def = do
             #virtualStack .= newStack r2
             codegenBinOpHelper def
 
+collectFunctionDefs :: Program -> Map String FuncTypeSignature
+collectFunctionDefs program =
+  Map.fromList [ (view (#prototype % #name) fn, view (#prototype % #signature) fn) | fn <- program ]
+
 alignTo :: Int -> Int -> Int
 alignTo alignment x = (x + (alignment -1)) .&. (-alignment)
 
@@ -312,4 +358,3 @@ subLiterals _ _ = Nothing
 mulLiterals :: Literal -> Literal -> Maybe Literal
 mulLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral (a * b))
 mulLiterals _ _ = Nothing
-
