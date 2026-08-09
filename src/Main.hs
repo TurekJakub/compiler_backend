@@ -6,10 +6,10 @@ import Abi (Register(..), RegisterType(GeneralPurpose))
 import Asm (emitAssembly)
 import Codegen (CodegenState(..), codgen)
 import qualified Data.Map as Map
-import Ir (IrToken(Add, IrLiteral, Peek, Mul, Sub), Literal(IntLiteral))
+import Ir (IrToken(Add, IrLiteral, Peek, Mul, Sub, FunctionCall), Literal(IntLiteral), FuncTypeSignature (FuncTypeSignature, argTypes, returnType), IrType (VoidType))
 
 testInput :: [IrToken]
-testInput = [Peek 8, IrLiteral (IntLiteral 42), Add, IrLiteral (IntLiteral 7), Sub, IrLiteral (IntLiteral 42), Mul]
+testInput = [Peek 8, IrLiteral (IntLiteral 42), Add, IrLiteral (IntLiteral 7), Sub, IrLiteral (IntLiteral 42), Mul, FunctionCall "test" ]
 
 testFreeRegisters :: [Register]
 testFreeRegisters =
@@ -22,6 +22,7 @@ initialState =
     , freeRegisters = testFreeRegisters
     , cache = Map.empty
     , emittedCode = []
+    , knowFuncDef = Map.fromList [("test", FuncTypeSignature {argTypes=[], returnType=VoidType})]
     }
 
 main :: IO ()

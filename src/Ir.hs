@@ -40,8 +40,23 @@ data IrToken
   | Eq
   deriving (Show)
 
+data IrType = IntType
+  | CharType
+  | DoubleType
+  | VoidType deriving(Show)
+
+data FuncTypeSignature =  FuncTypeSignature
+  {
+    argTypes :: [IrType],
+    returnType :: IrType
+  } deriving(Show)
+data FunctionPrototype = FunctionPrototype
+  { name:: String,
+    signature :: FuncTypeSignature
+  } deriving (Show)
+
 data FunctionDef = FunctionDef
-  { name :: String
+  { prototype :: FunctionPrototype
   , body :: [IrToken]
   } deriving (Show)
 

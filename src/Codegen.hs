@@ -6,7 +6,7 @@
 module Codegen (module Codegen) where
 import Abi
 import qualified Data.Map as Map
-import Ir (IrToken (Add, Peek, IrLiteral, Label, ConditionalBranch, Branch, Sub, Mul), Literal (..))
+import Ir (IrToken (Add, Peek, IrLiteral, Label, ConditionalBranch, Branch, Sub, Mul, FunctionCall), Literal (..), FuncTypeSignature (..))
 
 import Data.Map (Map)
 import Control.Monad.State
@@ -14,6 +14,8 @@ import Control.Monad.State
 import Optics
 import Optics.State.Operators ((%=),(.=))
 import GHC.Generics (Generic)
+import Control.Monad (when, forM_, zipWithM_, zipWithM)
+import Data.Bits ((.&.))
 
 data CacheKey = Slot Int | Const Int deriving (Show, Eq, Ord)
 
@@ -23,6 +25,7 @@ data CodegenState = CodegenState
   { virtualStack  :: [VStackItem]
   , freeRegisters :: [Register]
   , cache      :: Map CacheKey VStackItem
+  , knowFuncDef :: Map String FuncTypeSignature
   , emittedCode   :: [Inst]
   } deriving (Show, Generic)
 
@@ -122,6 +125,64 @@ codegenToken (ConditionalBranch lbl) = do
     [] -> error "Stack underflow: nothing to evaluate for ConditionalBranch"
     _  -> error "Invalid stack value for ConditionalBranch"
 
+codegenToken (FunctionCall name) = do
+  signature <- use (#knowFuncDef % at name)
+  case signature of
+    Just (FuncTypeSignature argsTypes retType) -> do
+      vStack <- use #virtualStack
+      let argsCount = (length argsTypes)
+      when (length vStack < argsCount) $ error $ 
+        "Stack underflow: not enough args to call function " ++ name ++ " expected " ++ show argsCount ++ " got " ++ show (length vStack)
+
+      let (args, stackRest) = splitAt (length argsTypes) vStack
+      #virtualStack .= stackRest
+
+      let argsInOrder = reverse args
+      let (regArgs, memArgs) = splitAt 8 argsInOrder
+
+      forM_ (zip ([0..]::[Int]) regArgs) handleRegArgs
+      
+      handleMemArgs memArgs
+
+      emitCall name
+
+      restoreSp $ length memArgs
+
+      #virtualStack %= (Reg (Register "a0" GeneralPurpose) :)
+
+    Nothing -> error "Tries to call unknown function"
+    where handleRegArgs (stackOffset, vStackItem) = do
+            freeRegs <- use #freeRegisters
+            case vStackItem of
+              Reg r  -> emit (InstRV $ Rv_Mv (Register ("a" ++ show stackOffset) GeneralPurpose) r)
+              Immediate (IntLiteral i) -> loadImmediate i (Register ("a" ++ show stackOffset) GeneralPurpose) freeRegs
+              _ -> return ()
+          handleMemArgs memArgs =
+            let memArgCount = length memArgs in
+            when (memArgCount > 0) $ do
+              let argsBytes = memArgCount * 8
+              bumpSp (-argsBytes)
+
+              forM_ (zip ([0..]::[Int]) memArgs) pushToPhysStack
+
+          pushToPhysStack (vStackOffset, vStackItem) = do
+            let physicalStackOffset = vStackOffset * 8
+            regToPush <- case vStackItem of
+                  Reg r -> return $ Just r
+                  Immediate (IntLiteral i) -> do
+                    tmp <- forceImmediateToReg i
+                  
+                    return $ Just tmp
+                  _ -> return Nothing
+            case regToPush of 
+              Just reg -> do 
+                emit (InstRV $ RV_Sd reg spRegister physicalStackOffset)
+                freeRegister reg
+              Nothing ->  error "Type not implemented yet"
+          restoreSp memArgsCount = 
+              when (memArgsCount > 0) $
+                bumpSp $ memArgsCount * 8
+
 codegenToken _ = return ()
 
 codgen :: [IrToken] -> CodegenState -> [Inst]
@@ -135,6 +196,19 @@ codgen inputIr initState =
 
 emit :: Inst -> State CodegenState ()
 emit inst = #emittedCode %= (inst :)
+
+emitCall :: String -> State CodegenState ()
+emitCall callee = do 
+  invalidateCache 
+  emit (InstRV $ RV_Call callee)
+
+bumpSp :: Int -> State CodegenState ()
+bumpSp bytes = 
+  let bumpBy = if (mod bytes 16) == 0 then
+        bytes
+      else
+        alignTo rvSpAlignment bytes
+  in emit (InstRV $ RV_Addi spRegister spRegister bumpBy)
 
 invalidateCacheLine :: VStackItem -> State CodegenState ()
 invalidateCacheLine invalLine =do 
@@ -166,12 +240,16 @@ forceImmediateToReg i = do
       _ -> do 
         freeRegs <- use #freeRegisters
         case freeRegs of
-          (free : rest) -> do
-            #freeRegisters .= rest
-            #cache % at (Const i) .= Just (Reg free)
-            emit (InstRV $ RV_Li free i)
-            pure free
+          (toAllocate : rest) -> do
+           loadImmediate i toAllocate rest
+           pure toAllocate
           _ -> error "Spill" -- TODO: Handle this
+
+loadImmediate :: Immediate -> Register -> [Register] -> State CodegenState ()
+loadImmediate imm reg regPool = do
+   #freeRegisters .= regPool
+   #cache % at (Const imm) .= Just (Reg reg)
+   emit (InstRV $ RV_Li reg imm)
 
 type CodegenBinOpRegAndIme = Register -> Immediate -> State CodegenState()
 data BinOpDef = BinOpDef
@@ -216,6 +294,9 @@ codegenBinOpHelper def = do
             r2 <- forceImmediateToReg i1
             #virtualStack .= newStack r2
             codegenBinOpHelper def
+
+alignTo :: Int -> Int -> Int
+alignTo alignment x = (x + (alignment -1)) .&. (-alignment)
 
 is12BitsImm :: Immediate -> Bool
 is12BitsImm i = i >= -2048 && i <= 2047
