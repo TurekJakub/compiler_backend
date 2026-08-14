@@ -14,7 +14,7 @@ data RiscVInst
   = RV_Lw   Register Register Immediate  
   | RV_Ld   Register Register Immediate  
   | RV_Li  Register Immediate
-  | RV_Sd   Register Register Immediate  
+  | RV_Sd   Register Register Immediate
   | Rv_Addw  Register Register Register 
   | RV_Add  Register Register Register  
   | RV_Addiw Register Register Immediate 
@@ -37,6 +37,10 @@ data RiscVInst
 data X86Inst = TBD deriving(Show)
 
 data Inst = InstRV RiscVInst | InstX86 X86Inst deriving (Show)
+
+{- We target 64-bit RV64 right now -}
+regSize :: Int
+regSize = 8
 
 rvSpAlignment :: Int
 rvSpAlignment = 16

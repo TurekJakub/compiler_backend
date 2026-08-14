@@ -6,7 +6,15 @@
 module Codegen (module Codegen) where
 import Abi
 import qualified Data.Map as Map
-import Ir (IrToken (Add, Peek, IrLiteral, Label, ConditionalBranch, Branch, Sub, Mul, FunctionCall), Literal (..), FuncTypeSignature (..), FunctionDef (body, prototype), FunctionPrototype (signature, name), Program)
+import Ir
+    ( FuncTypeSignature(argTypes, FuncTypeSignature),
+      FunctionDef(prototype, body),
+      FunctionPrototype(signature, name),
+      IrToken(FunctionCall, IrLiteral, GetLocal, SetLocal, Add,
+              Sub, Mul, Label, Branch, ConditionalBranch),
+      Literal(IntLiteral),
+      Program,
+      VarName ) 
 
 import Data.Map (Map)
 import Control.Monad.State
@@ -17,37 +25,68 @@ import GHC.Generics (Generic)
 import Control.Monad (when, forM_)
 import Data.Bits ((.&.))
 
-data CacheKey = Slot Int | Const Int deriving (Show, Eq, Ord)
+data CacheKey = Var VarName | Slot Int | Const Int deriving (Show, Eq, Ord)
 
 data VStackItem = Immediate Literal | Reg Register deriving(Show, Eq)
+
+type HwStackOffset = Int
 
 data CodegenState = CodegenState
   { virtualStack  :: [VStackItem]
   , freeRegisters :: [Register]
   , cache      :: Map CacheKey VStackItem
+  , localVars :: Map VarName HwStackOffset
   , knowFuncDef :: Map String FuncTypeSignature
   , emittedCode   :: [Inst]
   } deriving (Show, Generic)
 
-
 codegenToken :: IrToken -> State CodegenState ()
 codegenToken (IrLiteral lit)  = #virtualStack %= (Immediate lit :)
 
-codegenToken (Peek offset) = do
-  cachedLine <- use (#cache % at (Slot offset))
-  case cachedLine of 
-    Just value -> 
-      #virtualStack %= (value :)
-    Nothing -> do
-      freeRegs <- use #freeRegisters
-      case freeRegs of
-        (nextReg : restRegs) -> do
-          #freeRegisters .= restRegs
-          #virtualStack  %= (Reg nextReg :)
-          #cache % at (Slot offset) .= Just (Reg nextReg)
+codegenToken (GetLocal varName) = do
+  cachedReg <- use $ #cache % at  (Var varName) 
+  case cachedReg of 
+    Just c -> #virtualStack %= (c :)
+    Nothing -> do 
+      var <-  use (#localVars % at varName)
+      case var of 
+        Just varOffset -> do
+          freeRegs <- use #freeRegisters
+          case freeRegs of 
+            (allocated:rest) ->do
+              #freeRegisters .= rest
+              #virtualStack %= (Reg allocated :)
+              #cache % at (Var varName) .= Just (Reg allocated)
+              emit (InstRV (RV_Ld allocated rvSpRegister varOffset))
+            _ -> error "Register spilling not implemented yet" -- TODO: Implement this
+        Nothing -> error $ "Tries to get value of undeclared local variable with label '" ++ varName ++ "'"
 
-          emit (InstRV (RV_Lw nextReg rvSpRegister offset))
-        [] -> error "Spill out of registers!"
+codegenToken (SetLocal varName) = do 
+  vStack <- use #virtualStack
+  case vStack of 
+    (value : stackRest) -> do
+      #virtualStack .= stackRest
+      locals <- use #localVars 
+      varOffset <- case Map.lookup varName locals of
+        Just offset ->
+          pure offset
+        Nothing -> do
+          let offset = Map.size locals
+          #localVars % at varName .= Just offset
+          pure offset
+      valueReg <- case value of 
+        Reg r ->
+          pure $ Just r
+        Immediate (IntLiteral i) -> do
+          tmp <- forceImmediateToReg i
+          pure $ Just tmp 
+        _ -> pure Nothing
+      case valueReg of
+        Just r -> do
+          emit $ InstRV (RV_Sd r rvSpRegister varOffset)
+          #cache % at (Var varName) .= Just (Reg r)
+        Nothing -> error "Type not implemented yet :)"
+    _ -> error "Stack underflow in setLocal"
  
 codegenToken Add =
   let addiEmitter = \r1 i1 -> emit (InstRV $ RV_Addi r1 r1 i1) in
@@ -154,18 +193,17 @@ codegenToken (FunctionCall funcName) = do
           handleMemArgs memArgs =
             let memArgCount = length memArgs in
             when (memArgCount > 0) $ do
-              let argsBytes = memArgCount * 8
-              bumpSp (-argsBytes)
+              let argsBytes = memArgCount * regSize
+              emit $ bumpSp $ -argsBytes
 
               forM_ (zip ([0..]::[Int]) memArgs) pushToPhysStack
 
           pushToPhysStack (vStackOffset, vStackItem) = do
-            let physicalStackOffset = vStackOffset * 8
+            let physicalStackOffset = vStackOffset * regSize
             regToPush <- case vStackItem of
                   Reg r -> return $ Just r
                   Immediate (IntLiteral i) -> do
                     tmp <- forceImmediateToReg i
-                  
                     return $ Just tmp
                   _ -> return Nothing
             case regToPush of 
@@ -175,7 +213,7 @@ codegenToken (FunctionCall funcName) = do
               Nothing ->  error "Type not implemented yet"
           restoreSp memArgsCount = 
               when (memArgsCount > 0) $
-                bumpSp $ memArgsCount * 8
+                emit $ bumpSp $ memArgsCount * regSize
 
 codegenToken _ = return ()
 
@@ -185,27 +223,19 @@ codegenToken _ = return ()
 codegenFuncDefinition :: FunctionDef ->  Map String FuncTypeSignature -> [Inst]
 codegenFuncDefinition funcDef  knowFuncDefs = 
   let argsCount = length $ (view (#prototype % #signature % #argTypes) funcDef) 
-      frameSize = 16
-      frameOffset = 8
 
-      initialStack = [ Reg (Register ("a" ++ show i) GeneralPurpose) | i <- ([0..(min argsCount 8) -1] :: [Int]) ]
-      
-      initialCache = Map.fromList [ (Slot i, item) | (i, item) <- zip [0..] initialStack ]
+      initialCache = Map.fromList[ (Var ("arg" ++ show i), Reg (Register ("a" ++ show i) GeneralPurpose)) | i <- take (min argsCount 8) ([0..] :: [Int])]
 
       initState = CodegenState
-        { virtualStack  = initialStack   
+        { virtualStack  = [] -- Do not push arguments to stack right away, they will be lazy-loaded from cache on demand   
         , freeRegisters = rvTmpRegisters
         , cache         = initialCache
         , emittedCode   = []
         , knowFuncDef  = knowFuncDefs
+        , localVars = Map.empty
         }
       
       compilation = do
-        emit (InstRV $ RV_Label (view (#prototype % #name) funcDef))
-        bumpSp (-frameSize)
-        emit (InstRV (RV_Sd rvRaRegister rvSpRegister frameOffset))
-
-      
         mapM_ codegenToken (body funcDef)
 
         vStack <- use #virtualStack
@@ -213,7 +243,7 @@ codegenFuncDefinition funcDef  knowFuncDefs =
         case vStack of
           [item] ->
             case item of 
-              Reg r -> do emit (InstRV (RV_Addi rvA0Register r 0))
+              Reg r -> do emit $ InstRV (Rv_Mv rvA0Register r )
                           freeRegister r
               Immediate (IntLiteral i) -> do 
                   tmp <- forceImmediateToReg i
@@ -222,16 +252,28 @@ codegenFuncDefinition funcDef  knowFuncDefs =
               _ -> error "Only Int literals supported yet"
           _ -> error $ "Function must leave exactly one value at stack"
 
-        emit (InstRV (RV_Lw rvRaRegister rvSpRegister frameOffset))
-        bumpSp (frameSize)
-        emit (InstRV RV_Ret)
+      codegenResult = execState compilation initState
+    
+      localsCount = Map.size $ codegenResult ^. #localVars 
+      frameSize = alignTo rvSpAlignment (localsCount +1) * regSize
+      raOffset = frameSize - regSize
 
-      codegenResult = execState compilation initState in
+      funcPrologue = 
+        [ InstRV $ RV_Label $ view (#prototype % #name) funcDef
+        , bumpSp $ -frameSize
+        , InstRV $ RV_Sd rvRaRegister rvSpRegister raOffset
+        ]
 
-    reverse (emittedCode codegenResult)
+      funcEpilog = 
+        [ InstRV $ RV_Ld rvRaRegister rvSpRegister raOffset
+        , bumpSp frameSize
+        , InstRV RV_Ret
+        ]
 
-codgen :: Program  -> [Inst]
-codgen program = 
+    in  funcPrologue ++ reverse (emittedCode codegenResult) ++ funcEpilog
+
+codegen :: Program  -> [Inst]
+codegen program = 
   let knowFuncDefs = collectFunctionDefs program 
       codegenResult = map (flip codegenFuncDefinition knowFuncDefs)  program
   in concat .  reverse $  codegenResult
@@ -244,13 +286,13 @@ emitCall callee = do
   invalidateCache 
   emit (InstRV $ RV_Call callee)
 
-bumpSp :: Int -> State CodegenState ()
+bumpSp :: Int -> Inst
 bumpSp bytes = 
   let bumpBy = if (mod bytes 16) == 0 then
         bytes
       else
         alignTo rvSpAlignment bytes
-  in emit (InstRV $ RV_Addi rvSpRegister rvSpRegister bumpBy)
+  in InstRV $ RV_Addi rvSpRegister rvSpRegister bumpBy
 
 invalidateCacheLine :: VStackItem -> State CodegenState ()
 invalidateCacheLine invalLine =do 

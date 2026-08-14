@@ -14,13 +14,10 @@ data Literal
 
 type LabelName = String
 
+type VarName = String
 data IrToken
-  = Poke
-      { offset :: Int
-      }
-  | Peek
-      { offset :: Int
-      }
+  = GetLocal VarName
+  | SetLocal VarName
   | Drop
   | IrLiteral Literal
   | FunctionCall
