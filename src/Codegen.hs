@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Codegen (module Codegen) where
 import Abi
@@ -12,7 +13,7 @@ import Ir
       FunctionPrototype(signature, name),
       IrToken(FunctionCall, IrLiteral, GetLocal, SetLocal, Add,
               Sub, Mul, Label, Branch, ConditionalBranch),
-      Literal(IntLiteral),
+      Literal(IntLiteral, CharLiteral),
       Program,
       VarName ) 
 
@@ -27,7 +28,7 @@ import Data.Bits ((.&.))
 
 data CacheKey = Var VarName | Slot Int | Const Int deriving (Show, Eq, Ord)
 
-data VStackItem = Immediate Literal | Reg Register deriving(Show, Eq)
+data VStackItem = Immediate Literal | Reg Register | Spilled HwStackOffset deriving(Show, Eq)
 
 type HwStackOffset = Int
 
@@ -38,6 +39,8 @@ data CodegenState = CodegenState
   , localVars :: Map VarName HwStackOffset
   , knowFuncDef :: Map String FuncTypeSignature
   , emittedCode   :: [Inst]
+  , freeSpillOffsets :: [HwStackOffset]
+  , nextSpillOffset :: HwStackOffset
   } deriving (Show, Generic)
 
 codegenToken :: IrToken -> State CodegenState ()
@@ -51,14 +54,10 @@ codegenToken (GetLocal varName) = do
       var <-  use (#localVars % at varName)
       case var of 
         Just varOffset -> do
-          freeRegs <- use #freeRegisters
-          case freeRegs of 
-            (allocated:rest) ->do
-              #freeRegisters .= rest
-              #virtualStack %= (Reg allocated :)
-              #cache % at (Var varName) .= Just (Reg allocated)
-              emit (InstRV (RV_Ld allocated rvSpRegister varOffset))
-            _ -> error "Register spilling not implemented yet" -- TODO: Implement this
+          allocated <- allocateRegister
+          #virtualStack %= (Reg allocated :)
+          #cache % at (Var varName) .= Just (Reg allocated)
+          emit (InstRV (RV_Ld allocated rvSpRegister varOffset))
         Nothing -> error $ "Tries to get value of undeclared local variable with label '" ++ varName ++ "'"
 
 codegenToken (SetLocal varName) = do 
@@ -71,21 +70,12 @@ codegenToken (SetLocal varName) = do
         Just offset ->
           pure offset
         Nothing -> do
-          let offset = Map.size locals
+          offset <- allocateHwStackOffset
           #localVars % at varName .= Just offset
           pure offset
-      valueReg <- case value of 
-        Reg r ->
-          pure $ Just r
-        Immediate (IntLiteral i) -> do
-          tmp <- forceImmediateToReg i
-          pure $ Just tmp 
-        _ -> pure Nothing
-      case valueReg of
-        Just r -> do
-          emit $ InstRV (RV_Sd r rvSpRegister varOffset)
-          #cache % at (Var varName) .= Just (Reg r)
-        Nothing -> error "Type not implemented yet :)"
+      valueReg <- forceToReg value
+      emit $ InstRV (RV_Sd valueReg rvSpRegister varOffset)
+      #cache % at (Var varName) .= Just (Reg valueReg)
     _ -> error "Stack underflow in setLocal"
  
 codegenToken Add =
@@ -154,7 +144,14 @@ codegenToken (ConditionalBranch lbl) = do
           emit (InstRV (RV_J lbl))
         else 
           return ()
-          
+
+    (Spilled offset : []) -> do
+      #virtualStack .= []
+      tmp <- forceToReg $ Spilled offset
+      invalidateCache
+      emit (InstRV (RV_Beq tmp rvZeroRegister lbl))
+      freeRegister tmp
+      
     [] -> error "Stack underflow: nothing to evaluate for ConditionalBranch"
     _  -> error "Invalid stack value for ConditionalBranch"
 
@@ -185,32 +182,30 @@ codegenToken (FunctionCall funcName) = do
 
     Nothing -> error "Tries to call unknown function"
     where handleRegArgs (stackOffset, vStackItem) = do
-            freeRegs <- use #freeRegisters
+            let argReg = (Register ("a" ++ show stackOffset)GeneralPurpose)
             case vStackItem of
-              Reg r  -> emit (InstRV $ Rv_Mv (Register ("a" ++ show stackOffset) GeneralPurpose) r)
-              Immediate (IntLiteral i) -> loadImmediate i (Register ("a" ++ show stackOffset) GeneralPurpose) freeRegs
-              _ -> return ()
+              Immediate (IntLiteral i) -> loadImmediate i argReg
+              Reg r  -> do 
+                emit (InstRV $ Rv_Mv argReg r)
+                freeRegister r
+              Spilled offset -> do 
+                emit $ InstRV (RV_Ld argReg rvSpRegister offset)
+                freeHwStackOffset offset 
+              _ -> error "Unsupported type - only int Literals supported right now"
           handleMemArgs memArgs =
             let memArgCount = length memArgs in
             when (memArgCount > 0) $ do
+              regsToPush <- mapM forceToReg memArgs
               let argsBytes = memArgCount * regSize
+              
               emit $ bumpSp $ -argsBytes
 
-              forM_ (zip ([0..]::[Int]) memArgs) pushToPhysStack
+              forM_ (zip ([0..]::[Int]) regsToPush) pushToPhysStack
 
-          pushToPhysStack (vStackOffset, vStackItem) = do
+              forM_ regsToPush freeRegister
+          pushToPhysStack (vStackOffset, regToPush) = do
             let physicalStackOffset = vStackOffset * regSize
-            regToPush <- case vStackItem of
-                  Reg r -> return $ Just r
-                  Immediate (IntLiteral i) -> do
-                    tmp <- forceImmediateToReg i
-                    return $ Just tmp
-                  _ -> return Nothing
-            case regToPush of 
-              Just reg -> do 
-                emit (InstRV $ RV_Sd reg rvSpRegister physicalStackOffset)
-                freeRegister reg
-              Nothing ->  error "Type not implemented yet"
+            emit (InstRV $ RV_Sd regToPush rvSpRegister physicalStackOffset)
           restoreSp memArgsCount = 
               when (memArgsCount > 0) $
                 emit $ bumpSp $ memArgsCount * regSize
@@ -233,29 +228,24 @@ codegenFuncDefinition funcDef  knowFuncDefs =
         , emittedCode   = []
         , knowFuncDef  = knowFuncDefs
         , localVars = Map.empty
+        , freeSpillOffsets = []
+        , nextSpillOffset = 0
         }
       
       compilation = do
         mapM_ codegenToken (body funcDef)
 
         vStack <- use #virtualStack
-        {- This should be also reworked with register spilling -}
         case vStack of
-          [item] ->
-            case item of 
-              Reg r -> do emit $ InstRV (Rv_Mv rvA0Register r )
-                          freeRegister r
-              Immediate (IntLiteral i) -> do 
-                  tmp <- forceImmediateToReg i
-                  emit (InstRV $ Rv_Mv rvA0Register tmp)
-                  freeRegister tmp
-              _ -> error "Only Int literals supported yet"
+          [item] -> do
+            tmp <- forceToReg item
+            emit $ InstRV (Rv_Mv rvA0Register tmp)
+            freeRegister tmp
           _ -> error $ "Function must leave exactly one value at stack"
 
       codegenResult = execState compilation initState
     
-      localsCount = Map.size $ codegenResult ^. #localVars 
-      frameSize = alignTo rvSpAlignment (localsCount +1) * regSize
+      frameSize = alignTo rvSpAlignment ((codegenResult ^. #nextSpillOffset) + regSize)
       raOffset = frameSize - regSize
 
       funcPrologue = 
@@ -288,10 +278,11 @@ emitCall callee = do
 
 bumpSp :: Int -> Inst
 bumpSp bytes = 
-  let bumpBy = if (mod bytes 16) == 0 then
-        bytes
+  let alignedBytes = alignTo rvSpAlignment (abs bytes) in
+  let bumpBy = if bytes >= 0 then
+        alignedBytes
       else
-        alignTo rvSpAlignment bytes
+        -alignedBytes
   in InstRV $ RV_Addi rvSpRegister rvSpRegister bumpBy
 
 invalidateCacheLine :: VStackItem -> State CodegenState ()
@@ -306,6 +297,79 @@ freeRegister reg = do
   #freeRegisters %= (reg :)
   invalidateCacheLine(Reg reg)
 
+allocateRegister :: State CodegenState Register
+allocateRegister = do
+  freeRegs <- use #freeRegisters
+  case freeRegs of 
+    (allocated:rest) -> do
+        #freeRegisters .= rest
+        pure allocated
+    [] -> do
+      freedReg <- tryToFreeInactiveRegister 
+      case freedReg of
+        Just r -> pure r
+        Nothing -> handleRegistersSpill
+
+handleRegistersSpill :: State CodegenState Register
+handleRegistersSpill = do
+  activeRegisters <- getActiveRegisters
+  when (length activeRegisters == 0) $
+    error "Error: run out of CPU register and there are also non to be spilled to memory" -- This should never happened
+
+  let toSpill = last activeRegisters
+  spillOffset <- allocateHwStackOffset
+  invalidateCacheLine $ Reg toSpill
+  #virtualStack %= map (spillRegisterHelper toSpill spillOffset)
+  emit $ InstRV  (RV_Sd toSpill rvSpRegister spillOffset)
+  pure toSpill
+  where 
+    spillRegisterHelper toSpill offset= 
+      \item -> 
+        if item == (Reg toSpill)
+          then Spilled offset 
+        else item
+  
+allocateHwStackOffset :: State CodegenState HwStackOffset
+allocateHwStackOffset = do
+  freeOffsets <- use #freeSpillOffsets
+  case freeOffsets of
+    (allocated:rest) -> do
+      #freeSpillOffsets .= rest
+      pure allocated 
+    [] -> do
+      offset <- use #nextSpillOffset
+      #nextSpillOffset %= (+regSize)
+      pure offset
+  
+freeHwStackOffset :: HwStackOffset -> State CodegenState ()
+freeHwStackOffset offset = do
+  vStack <- use #virtualStack
+  let isReferenced = any (\case Spilled o -> o == offset; _ -> False) vStack
+  when (not isReferenced) $
+    #freeSpillOffsets %= (offset :)
+
+
+getActiveRegisters :: State CodegenState [Register]
+getActiveRegisters = do
+  vStack <- use #virtualStack
+  pure [ r | Reg r <- vStack]
+
+getCachedInactiveRegisters :: State CodegenState [Register]
+getCachedInactiveRegisters = do
+  cached <- use #cache
+  activeRegisters <- getActiveRegisters
+  pure $ [ r | (_, Reg r) <- Map.toList cached, r `notElem` activeRegisters ]
+
+tryToFreeInactiveRegister :: State CodegenState (Maybe Register)
+tryToFreeInactiveRegister =  do
+  inCacheOnly <- getCachedInactiveRegisters
+  case inCacheOnly of
+    (toFree:_) -> do
+      invalidateCacheLine $ Reg toFree
+      pure $ Just toFree
+    [] -> pure $ Nothing
+
+
 {- Enforce strict empty stack on basic block change invariant for now
    TODO: implement more mature solution that would required only same hight and values 'compatibility' -}
 blockChangeHelper :: State CodegenState ()
@@ -315,6 +379,19 @@ blockChangeHelper = do
     error "Stack must be empty when changing block"
   else
     invalidateCache
+  
+forceToReg :: VStackItem -> State CodegenState Register
+forceToReg (Immediate (IntLiteral i)) = forceImmediateToReg i
+
+forceToReg (Immediate (CharLiteral _)) = error "Only Int literals are supported yet :)"
+
+forceToReg (Reg r) = pure r
+
+forceToReg (Spilled spillOffset) = do
+  reg <- allocateRegister
+  emit (InstRV (RV_Ld reg rvSpRegister spillOffset))
+  freeHwStackOffset spillOffset
+  pure reg
 
 forceImmediateToReg :: Immediate -> State CodegenState Register
 forceImmediateToReg i = do
@@ -322,16 +399,13 @@ forceImmediateToReg i = do
     case cachedReg of
       Just (Reg r) -> pure r
       _ -> do 
-        freeRegs <- use #freeRegisters
-        case freeRegs of
-          (toAllocate : rest) -> do
-           loadImmediate i toAllocate rest
-           pure toAllocate
-          _ -> error "Spill" -- TODO: Handle this
+        loadTo <- allocateRegister
+        loadImmediate i loadTo
+        pure loadTo
 
-loadImmediate :: Immediate -> Register -> [Register] -> State CodegenState ()
-loadImmediate imm reg regPool = do
-   #freeRegisters .= regPool
+loadImmediate :: Immediate -> Register -> State CodegenState ()
+loadImmediate imm reg = do
+   -- #freeRegisters .= regPool
    #cache % at (Const imm) .= Just (Reg reg)
    emit (InstRV $ RV_Li reg imm)
 
@@ -351,11 +425,6 @@ codegenBinOpHelper :: BinOpDef ->  State CodegenState ()
 codegenBinOpHelper def = do
   vStack <- use #virtualStack
   case vStack  of
-    (Reg r1 : Reg r2 : stackRest) -> do 
-        freeRegister r1
-        #virtualStack .= (Reg r2 : stackRest)
-        invalidateCacheLine $ Reg r2
-        emit $ (def ^. #regRegInst) r2 r2 r1
     (Immediate i1 : Immediate i2 : stackRest) -> 
       case (def ^. #immediateFolding) i2 i1 of
         Just litSum -> #virtualStack .= (Immediate litSum) : stackRest
@@ -367,6 +436,13 @@ codegenBinOpHelper def = do
       let newStack = (\r -> Reg r : Reg r1 : stackRest)
       handleImmediate r1 i1 stackRest newStack (def ^. #immToRegInst)
     l | length l < 2 -> error $ def ^. #underflowErrMsg
+    (r1:r2: stackRest) -> do
+      r1Tmp <- forceToReg r1
+      r2Tmp <- forceToReg r2
+      #virtualStack .= (Reg r2Tmp : stackRest) 
+      invalidateCacheLine $ Reg r2Tmp
+      emit $ (def ^. #regRegInst) r2Tmp r2Tmp r1Tmp
+      freeRegister r1Tmp
     _ -> error $ def ^. #generalErrMsg
   where handleImmediate r1 i1 stackRest newStack instEmitter = 
           if is12BitsImm i1 && not  (def ^. #regOnlyInst)
