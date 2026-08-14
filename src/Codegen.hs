@@ -54,7 +54,7 @@ codegenToken Add =
   let addDef = 
         BinOpDef
           { regRegInst    = \r1 r2 r3-> InstRV $ RV_Add r1 r2 r3
-          , immediateFolding   = mulLiterals
+          , immediateFolding   = addLiterals
           , regToImmInst  = addiEmitter
           , immToRegInst  = addiEmitter
           , regOnlyInst = False
@@ -66,9 +66,9 @@ codegenToken Add =
 codegenToken Sub = 
   let subDef = 
         BinOpDef
-          { regRegInst    = \r1 r2 r3-> InstRV $ Rv_Mulw r1 r2 r3
-          , immediateFolding   = mulLiterals
-          , regToImmInst  = \r1 i1 -> do emit (InstRV $ RV_Sbw r1 rvZeroRegister r1)
+          { regRegInst    = \r1 r2 r3-> InstRV $ RV_Sub r1 r2 r3
+          , immediateFolding   = subLiterals
+          , regToImmInst  = \r1 i1 -> do emit (InstRV $ RV_Sub r1 rvZeroRegister r1)
                                          emit (InstRV $ RV_Addi r1 r1 i1)
           , immToRegInst  = \r1 i1 -> emit (InstRV $ RV_Addi r1 r1 (-i1))
           , regOnlyInst = False
@@ -80,7 +80,7 @@ codegenToken Sub =
 codegenToken Mul = 
   let mulDef = 
         BinOpDef
-          { regRegInst    = \r1 r2 r3-> InstRV $ Rv_Mulw r1 r2 r3
+          { regRegInst    = \r1 r2 r3-> InstRV $ Rv_Mul r1 r2 r3
           , immediateFolding   = mulLiterals
           , regToImmInst  = \_ _ -> emit (InstRV $ Rv_Nop)
           , immToRegInst  = \_ _ -> emit (InstRV $ Rv_Nop)
@@ -315,7 +315,7 @@ codegenBinOpHelper def = do
         invalidateCacheLine $ Reg r2
         emit $ (def ^. #regRegInst) r2 r2 r1
     (Immediate i1 : Immediate i2 : stackRest) -> 
-      case (def ^. #immediateFolding) i1 i2 of
+      case (def ^. #immediateFolding) i2 i1 of
         Just litSum -> #virtualStack .= (Immediate litSum) : stackRest
         Nothing -> error $ def ^. #generalErrMsg -- "Tries to sum non numerical literals"
     (Reg r1 : Immediate (IntLiteral i1) : stackRest) -> do
