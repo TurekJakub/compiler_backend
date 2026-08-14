@@ -12,9 +12,12 @@ type Immediate = Int
 
 data RiscVInst
   = RV_Lw   Register Register Immediate  
+  | RV_Ld   Register Register Immediate  
   | RV_Li  Register Immediate
   | RV_Sd   Register Register Immediate  
+  | Rv_Addw  Register Register Register 
   | RV_Add  Register Register Register  
+  | RV_Addiw Register Register Immediate 
   | RV_Addi Register Register Immediate 
   | RV_Slt  Register Register Register 
   | RV_Jal  Register LabelName          
@@ -23,8 +26,10 @@ data RiscVInst
   | RV_Ret       
   | RV_Beq  Register Register LabelName 
   | RV_Label LabelName
-  | RV_Sbw Register Register Register
+  | RV_Subw Register Register Register
+  | RV_Sub Register Register Register
   | Rv_Mulw Register Register Register
+  | Rv_Mul Register Register Register
   | Rv_Nop
   | Rv_Mv Register Register
   deriving (Show)
