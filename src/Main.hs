@@ -8,7 +8,8 @@ import Ir
   ( FuncTypeSignature(FuncTypeSignature, argTypes, returnType)
   , FunctionDef(FunctionDef, body, prototype)
   , FunctionPrototype(FunctionPrototype, name, signature)
-  , IrToken(Add, FunctionCall, GetLocal, IrLiteral, Mul, Sub)
+  , IrToken(Add, Branch, ConditionalBranch, FunctionCall, GetLocal, IrLiteral, Label,
+            Mul, Sub)
   , IrType(IntType, VoidType)
   , Literal(IntLiteral)
   , Program
@@ -32,7 +33,7 @@ testInput =
           , IrLiteral $ IntLiteral 5
           , IrLiteral $ IntLiteral 6
           , IrLiteral $ IntLiteral 7
-          , IrLiteral $ IntLiteral 8
+          , IrLiteral $ IntLiteral (-35)
           , FunctionCall "test"
           ]
       }
@@ -64,6 +65,12 @@ testInput =
           , Sub
           , IrLiteral (IntLiteral 42)
           , Mul
+          , ConditionalBranch "UwU"
+          , IrLiteral (IntLiteral 10)
+          , Branch "OwO"
+          , Label "UwU"
+          , IrLiteral (IntLiteral 20)
+          , Label "OwO"
           ]
       }
   ]

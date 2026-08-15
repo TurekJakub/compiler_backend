@@ -11,11 +11,13 @@ module Codegen
 import Abi
 import qualified Data.Map as Map
 import Ir
-  ( FuncTypeSignature(FuncTypeSignature, argTypes)
+  ( FuncTypeSignature(FuncTypeSignature, argTypes, returnType)
   , FunctionDef(body, prototype)
   , FunctionPrototype(name, signature)
   , IrToken(Add, Branch, ConditionalBranch, Div, Drop, Eq, FunctionCall, GetLocal,
             Gt, Gte, IrLiteral, Label, Lt, Lte, Mod, Mul, SetLocal, Sub)
+  , IrType(VoidType)
+  , LabelName
   , Literal(CharLiteral, IntLiteral)
   , Program
   , VarName
@@ -54,6 +56,7 @@ data CodegenState = CodegenState
   , emittedCode :: [Inst]
   , freeSpillOffsets :: [HwStackOffset]
   , nextSpillOffset :: HwStackOffset
+  , blockStackStates :: Map LabelName [VStackItem]
   } deriving (Show, Generic)
 
 codegenToken :: IrToken -> State CodegenState ()
@@ -135,39 +138,40 @@ codegenToken Mul =
           , generalErrMsg = "Tries to multiply non numerical literals"
           }
    in codegenBinOpHelper mulDef
-codegenToken (Label label) = do
-  blockChangeHelper
-  emit (InstRV (RV_Label label))
-codegenToken (Branch label) = do
-  blockChangeHelper
-  emit (InstRV (RV_J label))
-codegenToken (ConditionalBranch lbl) = do
+codegenToken (Label target) = do
+  blockChangeHelper target
+  emit (InstRV (RV_Label target))
+codegenToken (Branch target) = do
+  blockChangeHelper target
+  emit (InstRV (RV_J target))
+  #virtualStack .= []
+codegenToken (ConditionalBranch target) = do
   vStack <- use #virtualStack
   case vStack of
-    (Reg r:[]) -> do
-      #virtualStack .= []
+    (Reg r:rest) -> do
+      #virtualStack .= rest
       freeRegister r
-      invalidateCache
-      emit (InstRV (RV_Beq r rvZeroRegister lbl))
-    (Immediate (IntLiteral val):[]) -> do
-      #virtualStack .= []
+      blockChangeHelper target
+      emit (InstRV (RV_Beq r rvZeroRegister target))
+    (Immediate (IntLiteral val):rest) -> do
+      #virtualStack .= rest
       if val == 0
         then do
-          invalidateCache
-          emit (InstRV (RV_J lbl))
+          blockChangeHelper target
+          emit (InstRV (RV_J target))
         else return ()
-    (Spilled offset:[]) -> do
-      #virtualStack .= []
+    (Spilled offset:rest) -> do
+      #virtualStack .= rest
       tmp <- forceToReg $ Spilled offset
-      invalidateCache
-      emit (InstRV (RV_Beq tmp rvZeroRegister lbl))
+      blockChangeHelper target
+      emit (InstRV (RV_Beq tmp rvZeroRegister target))
       freeRegister tmp
     [] -> error "Stack underflow: nothing to evaluate for ConditionalBranch"
     _ -> error "Invalid stack value for ConditionalBranch"
 codegenToken (FunctionCall funcName) = do
   funcSignature <- use (#knowFuncDef % at funcName)
   case funcSignature of
-    Just (FuncTypeSignature argsTypes retType) -> do
+    Just (FuncTypeSignature argsTypes _retType) -> do
       vStack <- use #virtualStack
       let argsCount = (length argsTypes)
       when (length vStack < argsCount)
@@ -194,7 +198,7 @@ codegenToken (FunctionCall funcName) = do
       case vStackItem of
         Immediate (IntLiteral i) -> loadImmediate i argReg
         Reg r -> do
-          emit (InstRV $ Rv_Mv argReg r)
+          emitMove argReg r
           freeRegister r
         Spilled offset -> do
           emit $ InstRV (RV_Ld argReg rvSpRegister offset)
@@ -215,12 +219,10 @@ codegenToken (FunctionCall funcName) = do
       when (memArgsCount > 0) $ emit $ bumpSp $ memArgsCount * regSize
 codegenToken _ = return ()
 
-{- Improve this in the future - for now only eight arguments passed via registers are supported
-   TODO: add support for passing args via stack - should be fixed together with registers spilling implementation 
- -}
 codegenFuncDefinition :: FunctionDef -> Map String FuncTypeSignature -> [Inst]
 codegenFuncDefinition funcDef knowFuncDefs =
   let argsCount = length $ (view (#prototype % #signature % #argTypes) funcDef)
+      retType = view (#prototype % #signature % #returnType) funcDef
       frameSize = computeFrameSize funcDef knowFuncDefs
       initialCache =
         Map.fromList
@@ -241,6 +243,7 @@ codegenFuncDefinition funcDef knowFuncDefs =
           , localVars = Map.empty
           , freeSpillOffsets = []
           , nextSpillOffset = 0
+          , blockStackStates = Map.empty
           }
       compilation = do
         mapM_ codegenToken (body funcDef)
@@ -248,9 +251,15 @@ codegenFuncDefinition funcDef knowFuncDefs =
         case vStack of
           [item] -> do
             tmp <- forceToReg item
-            emit $ InstRV (Rv_Mv rvA0Register tmp)
+            emitMove rvA0Register tmp
             freeRegister tmp
-          _ -> error $ "Function must leave exactly one value at stack"
+          (h:rest) ->
+            error
+              $ "Function must leave exactly one value at stack, actual stack: "
+                  ++ show (h : rest)
+          [] ->
+            when (retType /= VoidType)
+              $ error "Function vit non void return type must return value"
       codegenResult = execState compilation initState
       raOffset = frameSize - regSize
       funcPrologue =
@@ -278,6 +287,12 @@ emitCall :: String -> State CodegenState ()
 emitCall callee = do
   invalidateCache
   emit (InstRV $ RV_Call callee)
+
+emitMove :: Register -> Register -> State CodegenState ()
+emitMove r1 r2 =
+  if r1 /= r2
+    then emit $ InstRV (Rv_Mv r1 r2)
+    else return ()
 
 bumpSp :: Int -> Inst
 bumpSp bytes =
@@ -375,14 +390,85 @@ tryToFreeInactiveRegister = do
       pure $ Just toFree
     [] -> pure $ Nothing
 
-{- Enforce strict empty stack on basic block change invariant for now
-   TODO: implement more mature solution that would required only same hight and values 'compatibility' -}
-blockChangeHelper :: State CodegenState ()
-blockChangeHelper = do
+blockChangeHelper :: LabelName -> State CodegenState ()
+blockChangeHelper target = do
   vStack <- use #virtualStack
-  if length vStack > 0
-    then error "Stack must be empty when changing block"
-    else invalidateCache
+  forcedVStack <- mapM (\item -> Reg <$> forceToReg item) vStack
+  knownTargetState <- use (#blockStackStates % at target)
+  invalidateCache
+  case knownTargetState of
+    Just targetState -> do
+      when (length targetState /= length forcedVStack)
+        $ error
+        $ "Stack depth before and after jump must be the same "
+            ++ show forcedVStack
+            ++ " "
+            ++ show targetState
+      handleStackStatesMerge forcedVStack targetState
+      #virtualStack .= targetState
+    Nothing -> #blockStackStates % at target .= Just forcedVStack
+
+handleStackStatesMerge :: [VStackItem] -> [VStackItem] -> State CodegenState ()
+handleStackStatesMerge current target = do
+  let toMerge =
+        [ (i, c, t)
+        | (i, (c, t)) <- zip ([0 ..] :: [Int]) (zip current target)
+        , c /= t
+        ]
+  case toMerge of
+    [] -> return ()
+    ((idx, curr, _):_) -> do
+      let conflicts ct (_, c, _) =
+            case ct of
+              Reg r -> c == Reg r
+              Spilled offset -> c == Spilled offset
+              _ -> False
+      let nonConflictingMoves =
+            [ (i, c, t)
+            | (i, c, t) <- toMerge
+            , not (any (conflicts t) (filter (\(j, _, _) -> j /= i) toMerge))
+            ]
+      case nonConflictingMoves of
+        ((i, c, t):_) -> do
+          mergeItem c t
+          handleStackStatesMerge (replaceVStackItem i t current) target
+        [] -> do
+          scratch <- allocateRegister
+          mergeItem curr (Reg scratch)
+          let currWithScratch = replaceVStackItem idx (Reg scratch) current
+          handleStackStatesMerge currWithScratch target
+          freeRegister scratch
+  where
+    mergeItem currentItem targetItem
+      | currentItem == targetItem = return ()
+    mergeItem currentItem targetItem =
+      case (currentItem, targetItem) of
+        (Immediate (IntLiteral currVal), Reg targetReg) ->
+          loadImmediate currVal targetReg
+        (Spilled hwOffset, Reg targetReg) ->
+          emit $ InstRV (RV_Ld targetReg rvSpRegister hwOffset)
+        (Reg currentReg, Reg targetReg) -> emitMove targetReg currentReg
+        (Immediate (IntLiteral i), Spilled hwOffsetTarget) -> do
+          tmp <- forceImmediateToReg i
+          emit $ InstRV (RV_Sd tmp rvSpRegister hwOffsetTarget)
+          freeRegister tmp
+        (Spilled hwOffsetCurrent, Spilled hwOffsetTarget) -> do
+          tmp <- allocateRegister
+          emit $ InstRV (RV_Ld tmp rvSpRegister hwOffsetCurrent)
+          emit $ InstRV (RV_Sd tmp rvRaRegister hwOffsetTarget)
+          freeRegister tmp
+        (Reg currentReg, Spilled hwOffsetTarget) ->
+          emit $ InstRV (RV_Sd currentReg rvSpRegister hwOffsetTarget)
+        _ ->
+          error
+            $ "Unable to merge stack items on block change, current item: "
+                ++ show current
+                ++ " item requested by target: "
+                ++ show target
+    replaceVStackItem _ _ [] = []
+    replaceVStackItem 0 newVal (_:ts) = newVal : ts
+    replaceVStackItem offset newVal (h:ts) =
+      h : replaceVStackItem (offset - 1) newVal ts
 
 forceToReg :: VStackItem -> State CodegenState Register
 forceToReg (Immediate (IntLiteral i)) = forceImmediateToReg i

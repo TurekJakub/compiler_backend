@@ -49,7 +49,7 @@ data IrType
   | CharType
   | DoubleType
   | VoidType
-  deriving (Show)
+  deriving (Show, Eq)
 
 data FuncTypeSignature = FuncTypeSignature
   { argTypes :: [IrType]
