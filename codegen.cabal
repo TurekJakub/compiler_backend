@@ -23,4 +23,5 @@ executable codegen
     -- other-extensions:
     build-depends:    base >= 4.19 && < 4.23, containers, mtl, optics
     hs-source-dirs:   src
-    default-language: GHC2024
+    default-language:   GHC2021
+    default-extensions: GHC2024

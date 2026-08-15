@@ -5,6 +5,7 @@
 module Ir
   ( module Ir
   ) where
+
 import GHC.Generics (Generic)
 
 data Literal
@@ -15,6 +16,7 @@ data Literal
 type LabelName = String
 
 type VarName = String
+
 data IrToken
   = GetLocal VarName
   | SetLocal VarName
@@ -42,19 +44,21 @@ data IrToken
   | Eq
   deriving (Show, Eq, Ord)
 
-data IrType = IntType
+data IrType
+  = IntType
   | CharType
   | DoubleType
-  | VoidType deriving(Show)
+  | VoidType
+  deriving (Show)
 
-data FuncTypeSignature =  FuncTypeSignature
-  {
-    argTypes :: [IrType],
-    returnType :: IrType
-  } deriving(Show, Generic)
+data FuncTypeSignature = FuncTypeSignature
+  { argTypes :: [IrType]
+  , returnType :: IrType
+  } deriving (Show, Generic)
+
 data FunctionPrototype = FunctionPrototype
-  { name:: LabelName,
-    signature :: FuncTypeSignature
+  { name :: LabelName
+  , signature :: FuncTypeSignature
   } deriving (Show, Generic)
 
 data FunctionDef = FunctionDef
