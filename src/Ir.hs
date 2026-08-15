@@ -40,7 +40,7 @@ data IrToken
   | Gt
   | Gte
   | Eq
-  deriving (Show)
+  deriving (Show, Eq, Ord)
 
 data IrType = IntType
   | CharType

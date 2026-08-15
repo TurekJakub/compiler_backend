@@ -12,7 +12,7 @@ import Ir
       FunctionDef(prototype, body),
       FunctionPrototype(signature, name),
       IrToken(FunctionCall, IrLiteral, GetLocal, SetLocal, Add,
-              Sub, Mul, Label, Branch, ConditionalBranch),
+              Sub, Mul, Label, Branch, ConditionalBranch, Drop, Mod, Lt, Lte, Gt, Gte, Eq, Div),
       Literal(IntLiteral, CharLiteral),
       Program,
       VarName ) 
@@ -25,6 +25,7 @@ import Optics.State.Operators ((%=),(.=))
 import GHC.Generics (Generic)
 import Control.Monad (when, forM_)
 import Data.Bits ((.&.))
+import Data.Containers.ListUtils (nubOrd)
 
 data CacheKey = Var VarName | Slot Int | Const Int deriving (Show, Eq, Ord)
 
@@ -195,17 +196,16 @@ codegenToken (FunctionCall funcName) = do
           handleMemArgs memArgs =
             let memArgCount = length memArgs in
             when (memArgCount > 0) $ do
-              regsToPush <- mapM forceToReg memArgs
-              let argsBytes = memArgCount * regSize
+              let argsBytes = alignTo rvSpAlignment (memArgCount * regSize)
+              
+              forM_ (zip ([0..]::[Int]) memArgs) $ \(i, arg)->
+                pushToPhysStack (-argsBytes + (i *regSize)) arg
               
               emit $ bumpSp $ -argsBytes
-
-              forM_ (zip ([0..]::[Int]) regsToPush) pushToPhysStack
-
-              forM_ regsToPush freeRegister
-          pushToPhysStack (vStackOffset, regToPush) = do
-            let physicalStackOffset = vStackOffset * regSize
-            emit (InstRV $ RV_Sd regToPush rvSpRegister physicalStackOffset)
+          pushToPhysStack hwStackOffset toPush = do
+            regToPush <- forceToReg toPush
+            emit (InstRV $ RV_Sd regToPush rvSpRegister hwStackOffset)
+            freeRegister regToPush
           restoreSp memArgsCount = 
               when (memArgsCount > 0) $
                 emit $ bumpSp $ memArgsCount * regSize
@@ -218,8 +218,9 @@ codegenToken _ = return ()
 codegenFuncDefinition :: FunctionDef ->  Map String FuncTypeSignature -> [Inst]
 codegenFuncDefinition funcDef  knowFuncDefs = 
   let argsCount = length $ (view (#prototype % #signature % #argTypes) funcDef) 
+      frameSize = computeFrameSize funcDef knowFuncDefs
 
-      initialCache = Map.fromList[ (Var ("arg" ++ show i), Reg (Register ("a" ++ show i) GeneralPurpose)) | i <- take (min argsCount 8) ([0..] :: [Int])]
+      initialCache = Map.fromList [ if i < 8   then (Var ("arg" ++ show i), Reg (Register ("a" ++ show i) GeneralPurpose))   else (Var ("arg" ++ show i), Spilled (frameSize + (i - 8) * regSize)) | i <- [0 .. argsCount - 1]]
 
       initState = CodegenState
         { virtualStack  = [] -- Do not push arguments to stack right away, they will be lazy-loaded from cache on demand   
@@ -244,8 +245,6 @@ codegenFuncDefinition funcDef  knowFuncDefs =
           _ -> error $ "Function must leave exactly one value at stack"
 
       codegenResult = execState compilation initState
-    
-      frameSize = alignTo rvSpAlignment ((codegenResult ^. #nextSpillOffset) + regSize)
       raOffset = frameSize - regSize
 
       funcPrologue = 
@@ -405,7 +404,6 @@ forceImmediateToReg i = do
 
 loadImmediate :: Immediate -> Register -> State CodegenState ()
 loadImmediate imm reg = do
-   -- #freeRegisters .= regPool
    #cache % at (Const imm) .= Just (Reg reg)
    emit (InstRV $ RV_Li reg imm)
 
@@ -454,6 +452,49 @@ codegenBinOpHelper def = do
             r2 <- forceImmediateToReg i1
             #virtualStack .= newStack r2
             codegenBinOpHelper def
+
+computeFrameSize :: FunctionDef -> Map String FuncTypeSignature -> Int
+computeFrameSize func knownFuncDefs =
+  let funcBody = func ^. #body
+      localsCount = length $ collectLocals func
+      maxStackDepth = computeMaxStackDepth funcBody 0 0 
+      spillSlotsCount = max 0 (maxStackDepth - length rvTmpRegisters)
+      frameSlots = spillSlotsCount +localsCount + 1
+  in alignTo rvSpAlignment (frameSlots * regSize)
+  where
+    computeMaxStackDepth [] _ peakDepth = peakDepth
+    computeMaxStackDepth (h:ts) currDepth peakDepth =
+      let depthChange = getTokenStackDepthDelta h
+          newCurr = currDepth + depthChange
+          newPeak = max peakDepth newCurr
+      in computeMaxStackDepth ts newCurr newPeak
+
+    getTokenStackDepthDelta = \case
+      IrLiteral _ -> 1
+      GetLocal _ -> 1
+      SetLocal _ -> -1
+      Drop -> -1
+      Add -> -1 
+      Sub -> -1 
+      Mul -> -1
+      Mod -> -1
+      Lt -> -1
+      Lte -> -1
+      Gt -> -1
+      Gte -> -1
+      Eq -> -1
+      Div -> -1
+      Branch _ -> 0
+      Label _ -> 0
+      ConditionalBranch _ -> -1
+      FunctionCall fname  -> 
+        case Map.lookup fname knownFuncDefs of
+          Just (FuncTypeSignature args _) -> 1 - length args
+          Nothing -> 0
+
+collectLocals :: FunctionDef -> [IrToken]
+collectLocals def = 
+  nubOrd [SetLocal x | (SetLocal x) <- (def ^. #body)]
 
 collectFunctionDefs :: Program -> Map String FuncTypeSignature
 collectFunctionDefs program =
