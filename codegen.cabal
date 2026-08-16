@@ -19,7 +19,7 @@ common warnings
 executable codegen
     import:           warnings
     main-is:          Main.hs
-    other-modules: Ir, Abi, Codegen, Asm
+    other-modules: Ir, Abi, Codegen, Lib, Asm, Target
     -- other-extensions:
     build-depends:    base >= 4.19 && < 4.23, containers, mtl, optics
     hs-source-dirs:   src

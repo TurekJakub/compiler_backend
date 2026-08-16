@@ -3,12 +3,18 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+
 
 module Codegen
   ( module Codegen
   ) where
 
 import Abi
+import Target
+import Lib
 import qualified Data.Map as Map
 import Ir
   ( FuncTypeSignature(FuncTypeSignature, argTypes, returnType)
@@ -32,34 +38,10 @@ import Data.Containers.ListUtils (nubOrd)
 import GHC.Generics (Generic)
 import Optics
 import Optics.State.Operators ((%=), (.=))
+import Control.Exception.Backtrace (setBacktraceMechanismState)
+import Data.Data (Proxy(Proxy))
 
-data CacheKey
-  = Var VarName
-  | Slot Int
-  | Const Int
-  deriving (Show, Eq, Ord)
-
-data VStackItem
-  = Immediate Literal
-  | Reg Register
-  | Spilled HwStackOffset
-  deriving (Show, Eq)
-
-type HwStackOffset = Int
-
-data CodegenState = CodegenState
-  { virtualStack :: [VStackItem]
-  , freeRegisters :: [Register]
-  , cache :: Map CacheKey VStackItem
-  , localVars :: Map VarName HwStackOffset
-  , knowFuncDef :: Map String FuncTypeSignature
-  , emittedCode :: [Inst]
-  , freeSpillOffsets :: [HwStackOffset]
-  , nextSpillOffset :: HwStackOffset
-  , blockStackStates :: Map LabelName [VStackItem]
-  } deriving (Show, Generic)
-
-codegenToken :: IrToken -> State CodegenState ()
+codegenToken :: InstSelector target => IrToken -> State (CodegenState target) ()
 codegenToken (IrLiteral lit) = #virtualStack %= (Immediate lit :)
 codegenToken (GetLocal varName) = do
   cachedReg <- use $ #cache % at (Var varName)
@@ -72,7 +54,7 @@ codegenToken (GetLocal varName) = do
           allocated <- allocateRegister
           #virtualStack %= (Reg allocated :)
           #cache % at (Var varName) .= Just (Reg allocated)
-          emit (InstRV (RV_Ld allocated rvSpRegister varOffset))
+          emit $ emitLoad allocated rvSpRegister varOffset
         Nothing ->
           error
             $ "Tries to get value of undeclared local variable with label '"
@@ -92,18 +74,16 @@ codegenToken (SetLocal varName) = do
             #localVars % at varName .= Just offset
             pure offset
       valueReg <- forceToReg value
-      emit $ InstRV (RV_Sd valueReg rvSpRegister varOffset)
+      emit $ emitStore valueReg rvSpRegister varOffset
       #cache % at (Var varName) .= Just (Reg valueReg)
     _ -> error "Stack underflow in setLocal"
+
 codegenToken Add =
   let addiEmitter = \r1 i1 -> emit (InstRV $ RV_Addi r1 r1 i1)
    in let addDef =
             BinOpDef
-              { regRegInst = \r1 r2 r3 -> InstRV $ RV_Add r1 r2 r3
+              { opImplementation = codegenAdd 
               , immediateFolding = addLiterals
-              , regToImmInst = addiEmitter
-              , immToRegInst = addiEmitter
-              , regOnlyInst = False
               , underflowErrMsg =
                   "Stack underflow: there is not enough values to compute sum"
               , generalErrMsg = "Tries to sum non numerical literals"
@@ -112,14 +92,8 @@ codegenToken Add =
 codegenToken Sub =
   let subDef =
         BinOpDef
-          { regRegInst = \r1 r2 r3 -> InstRV $ RV_Sub r1 r2 r3
+          { opImplementation = codegenSub
           , immediateFolding = subLiterals
-          , regToImmInst =
-              \r1 i1 -> do
-                emit (InstRV $ RV_Sub r1 rvZeroRegister r1)
-                emit (InstRV $ RV_Addi r1 r1 i1)
-          , immToRegInst = \r1 i1 -> emit (InstRV $ RV_Addi r1 r1 (-i1))
-          , regOnlyInst = False
           , underflowErrMsg =
               "Stack underflow: there is not enough values to compute difference"
           , generalErrMsg = "Tries to subtract non numerical literals"
@@ -128,11 +102,8 @@ codegenToken Sub =
 codegenToken Mul =
   let mulDef =
         BinOpDef
-          { regRegInst = \r1 r2 r3 -> InstRV $ Rv_Mul r1 r2 r3
+          { opImplementation = codegenMul
           , immediateFolding = mulLiterals
-          , regToImmInst = \_ _ -> emit (InstRV $ Rv_Nop)
-          , immToRegInst = \_ _ -> emit (InstRV $ Rv_Nop)
-          , regOnlyInst = True
           , underflowErrMsg =
               "Stack underflow: there is not enough values to compute product"
           , generalErrMsg = "Tries to multiply non numerical literals"
@@ -219,7 +190,7 @@ codegenToken (FunctionCall funcName) = do
       when (memArgsCount > 0) $ emit $ bumpSp $ memArgsCount * regSize
 codegenToken _ = return ()
 
-codegenFuncDefinition :: FunctionDef -> Map String FuncTypeSignature -> [Inst]
+codegenFuncDefinition :: InstSelector target => FunctionDef -> Map String FuncTypeSignature -> [target]
 codegenFuncDefinition funcDef knowFuncDefs =
   let argsCount = length $ (view (#prototype % #signature % #argTypes) funcDef)
       retType = view (#prototype % #signature % #returnType) funcDef
@@ -274,123 +245,13 @@ codegenFuncDefinition funcDef knowFuncDefs =
         ]
    in funcPrologue ++ reverse (emittedCode codegenResult) ++ funcEpilog
 
-codegen :: Program -> [Inst]
+codegen :: forall target. InstSelector target => Program -> [target]
 codegen program =
   let knowFuncDefs = collectFunctionDefs program
       codegenResult = map (flip codegenFuncDefinition knowFuncDefs) program
    in concat . reverse $ codegenResult
 
-emit :: Inst -> State CodegenState ()
-emit inst = #emittedCode %= (inst :)
-
-emitCall :: String -> State CodegenState ()
-emitCall callee = do
-  invalidateCache
-  emit (InstRV $ RV_Call callee)
-
-emitMove :: Register -> Register -> State CodegenState ()
-emitMove r1 r2 =
-  if r1 /= r2
-    then emit $ InstRV (Rv_Mv r1 r2)
-    else return ()
-
-bumpSp :: Int -> Inst
-bumpSp bytes =
-  let alignedBytes = alignTo rvSpAlignment (abs bytes)
-   in let bumpBy =
-            if bytes >= 0
-              then alignedBytes
-              else -alignedBytes
-       in InstRV $ RV_Addi rvSpRegister rvSpRegister bumpBy
-
-invalidateCacheLine :: VStackItem -> State CodegenState ()
-invalidateCacheLine invalLine = do
-  #cache %= Map.filter (\line -> line /= invalLine)
-
-invalidateCache :: State CodegenState ()
-invalidateCache = #cache .= Map.empty
-
-freeRegister :: Register -> State CodegenState ()
-freeRegister reg = do
-  #freeRegisters %= (reg :)
-  invalidateCacheLine (Reg reg)
-
-allocateRegister :: State CodegenState Register
-allocateRegister = do
-  freeRegs <- use #freeRegisters
-  case freeRegs of
-    (allocated:rest) -> do
-      #freeRegisters .= rest
-      pure allocated
-    [] -> do
-      freedReg <- tryToFreeInactiveRegister
-      case freedReg of
-        Just r -> pure r
-        Nothing -> handleRegistersSpill
-
-handleRegistersSpill :: State CodegenState Register
-handleRegistersSpill = do
-  activeRegisters <- getActiveRegisters
-  when (length activeRegisters == 0)
-    $ error
-        "Error: run out of CPU register and there are also non to be spilled to memory" -- This should never happened
-  let toSpill = last activeRegisters
-  spillOffset <- allocateHwStackOffset
-  invalidateCacheLine $ Reg toSpill
-  #virtualStack %= map (spillRegisterHelper toSpill spillOffset)
-  emit $ InstRV (RV_Sd toSpill rvSpRegister spillOffset)
-  pure toSpill
-  where
-    spillRegisterHelper toSpill offset =
-      \item ->
-        if item == (Reg toSpill)
-          then Spilled offset
-          else item
-
-allocateHwStackOffset :: State CodegenState HwStackOffset
-allocateHwStackOffset = do
-  freeOffsets <- use #freeSpillOffsets
-  case freeOffsets of
-    (allocated:rest) -> do
-      #freeSpillOffsets .= rest
-      pure allocated
-    [] -> do
-      offset <- use #nextSpillOffset
-      #nextSpillOffset %= (+ regSize)
-      pure offset
-
-freeHwStackOffset :: HwStackOffset -> State CodegenState ()
-freeHwStackOffset offset = do
-  vStack <- use #virtualStack
-  let isReferenced =
-        any
-          (\case
-             Spilled o -> o == offset
-             _ -> False)
-          vStack
-  when (not isReferenced) $ #freeSpillOffsets %= (offset :)
-
-getActiveRegisters :: State CodegenState [Register]
-getActiveRegisters = do
-  vStack <- use #virtualStack
-  pure [r | Reg r <- vStack]
-
-getCachedInactiveRegisters :: State CodegenState [Register]
-getCachedInactiveRegisters = do
-  cached <- use #cache
-  activeRegisters <- getActiveRegisters
-  pure $ [r | (_, Reg r) <- Map.toList cached, r `notElem` activeRegisters]
-
-tryToFreeInactiveRegister :: State CodegenState (Maybe Register)
-tryToFreeInactiveRegister = do
-  inCacheOnly <- getCachedInactiveRegisters
-  case inCacheOnly of
-    (toFree:_) -> do
-      invalidateCacheLine $ Reg toFree
-      pure $ Just toFree
-    [] -> pure $ Nothing
-
-blockChangeHelper :: LabelName -> State CodegenState ()
+blockChangeHelper :: InstSelector target => LabelName -> State (CodegenState target) ()
 blockChangeHelper target = do
   vStack <- use #virtualStack
   forcedVStack <- mapM (\item -> Reg <$> forceToReg item) vStack
@@ -408,107 +269,17 @@ blockChangeHelper target = do
       #virtualStack .= targetState
     Nothing -> #blockStackStates % at target .= Just forcedVStack
 
-handleStackStatesMerge :: [VStackItem] -> [VStackItem] -> State CodegenState ()
-handleStackStatesMerge current target = do
-  let toMerge =
-        [ (i, c, t)
-        | (i, (c, t)) <- zip ([0 ..] :: [Int]) (zip current target)
-        , c /= t
-        ]
-  case toMerge of
-    [] -> return ()
-    ((idx, curr, _):_) -> do
-      let conflicts ct (_, c, _) =
-            case ct of
-              Reg r -> c == Reg r
-              Spilled offset -> c == Spilled offset
-              _ -> False
-      let nonConflictingMoves =
-            [ (i, c, t)
-            | (i, c, t) <- toMerge
-            , not (any (conflicts t) (filter (\(j, _, _) -> j /= i) toMerge))
-            ]
-      case nonConflictingMoves of
-        ((i, c, t):_) -> do
-          mergeItem c t
-          handleStackStatesMerge (replaceVStackItem i t current) target
-        [] -> do
-          scratch <- allocateRegister
-          mergeItem curr (Reg scratch)
-          let currWithScratch = replaceVStackItem idx (Reg scratch) current
-          handleStackStatesMerge currWithScratch target
-          freeRegister scratch
-  where
-    mergeItem currentItem targetItem
-      | currentItem == targetItem = return ()
-    mergeItem currentItem targetItem =
-      case (currentItem, targetItem) of
-        (Immediate (IntLiteral currVal), Reg targetReg) ->
-          loadImmediate currVal targetReg
-        (Spilled hwOffset, Reg targetReg) ->
-          emit $ InstRV (RV_Ld targetReg rvSpRegister hwOffset)
-        (Reg currentReg, Reg targetReg) -> emitMove targetReg currentReg
-        (Immediate (IntLiteral i), Spilled hwOffsetTarget) -> do
-          tmp <- forceImmediateToReg i
-          emit $ InstRV (RV_Sd tmp rvSpRegister hwOffsetTarget)
-          freeRegister tmp
-        (Spilled hwOffsetCurrent, Spilled hwOffsetTarget) -> do
-          tmp <- allocateRegister
-          emit $ InstRV (RV_Ld tmp rvSpRegister hwOffsetCurrent)
-          emit $ InstRV (RV_Sd tmp rvRaRegister hwOffsetTarget)
-          freeRegister tmp
-        (Reg currentReg, Spilled hwOffsetTarget) ->
-          emit $ InstRV (RV_Sd currentReg rvSpRegister hwOffsetTarget)
-        _ ->
-          error
-            $ "Unable to merge stack items on block change, current item: "
-                ++ show current
-                ++ " item requested by target: "
-                ++ show target
-    replaceVStackItem _ _ [] = []
-    replaceVStackItem 0 newVal (_:ts) = newVal : ts
-    replaceVStackItem offset newVal (h:ts) =
-      h : replaceVStackItem (offset - 1) newVal ts
 
-forceToReg :: VStackItem -> State CodegenState Register
-forceToReg (Immediate (IntLiteral i)) = forceImmediateToReg i
-forceToReg (Immediate (CharLiteral _)) =
-  error "Only Int literals are supported yet :)"
-forceToReg (Reg r) = pure r
-forceToReg (Spilled spillOffset) = do
-  reg <- allocateRegister
-  emit (InstRV (RV_Ld reg rvSpRegister spillOffset))
-  freeHwStackOffset spillOffset
-  pure reg
+type CodegenBinOpRegAndIme target = Register -> Immediate -> State (CodegenState target) ()
 
-forceImmediateToReg :: Immediate -> State CodegenState Register
-forceImmediateToReg i = do
-  cachedReg <- use (#cache % at (Const i))
-  case cachedReg of
-    Just (Reg r) -> pure r
-    _ -> do
-      loadTo <- allocateRegister
-      loadImmediate i loadTo
-      pure loadTo
-
-loadImmediate :: Immediate -> Register -> State CodegenState ()
-loadImmediate imm reg = do
-  #cache % at (Const imm) .= Just (Reg reg)
-  emit (InstRV $ RV_Li reg imm)
-
-type CodegenBinOpRegAndIme = Register -> Immediate -> State CodegenState ()
-
-data BinOpDef = BinOpDef
-  { regRegInst :: Register -> Register -> Register -> Inst
-  , immediateFolding :: Literal -> Literal -> Maybe Literal
-  , regToImmInst :: CodegenBinOpRegAndIme
-  , immToRegInst :: CodegenBinOpRegAndIme
-  , regOnlyInst :: Bool
+data BinOpDef target = BinOpDef
+  {immediateFolding :: Literal -> Literal -> Maybe Literal
+  , opImplementation ::  VStackItem -> VStackItem -> State (CodegenState target) VStackItem
   , underflowErrMsg :: String
   , generalErrMsg :: String
   } deriving (Generic)
 
-codegenBinOpHelper :: BinOpDef -> State CodegenState ()
+codegenBinOpHelper :: InstSelector target => BinOpDef target -> State (CodegenState target) ()
 codegenBinOpHelper def = do
   vStack <- use #virtualStack
   case vStack of
@@ -516,25 +287,14 @@ codegenBinOpHelper def = do
       case (def ^. #immediateFolding) i2 i1 of
         Just litSum -> #virtualStack .= (Immediate litSum) : stackRest
         Nothing -> error $ def ^. #generalErrMsg -- "Tries to sum non numerical literals"
-    (Reg r1:Immediate (IntLiteral i1):stackRest) -> do
-      let newStack = (\r -> Reg r1 : Reg r : stackRest)
-      handleImmediate r1 i1 stackRest newStack (def ^. #regToImmInst)
-    (Immediate (IntLiteral i1):Reg r1:stackRest) -> do
-      let newStack = (\r -> Reg r : Reg r1 : stackRest)
-      handleImmediate r1 i1 stackRest newStack (def ^. #immToRegInst)
-    l
-      | length l < 2 -> error $ def ^. #underflowErrMsg
     (r1:r2:stackRest) -> do
-      r1Tmp <- forceToReg r1
-      r2Tmp <- forceToReg r2
-      #virtualStack .= (Reg r2Tmp : stackRest)
-      invalidateCacheLine $ Reg r2Tmp
-      emit $ (def ^. #regRegInst) r2Tmp r2Tmp r1Tmp
-      freeRegister r1Tmp
-    _ -> error $ def ^. #generalErrMsg
+      res <- (def ^. #opImplementation) r1 r2
+      #virtualStack .= (res : stackRest) 
+      
+    _ -> error $ def ^. #underflowErrMsg
   where
     handleImmediate r1 i1 stackRest newStack instEmitter =
-      if is12BitsImm i1 && not (def ^. #regOnlyInst)
+      if is12BitsImm i1 -- && not (def ^. #regOnlyInst)
         then do
           #virtualStack .= (Reg r1 : stackRest)
           invalidateCacheLine $ Reg r1
@@ -544,14 +304,14 @@ codegenBinOpHelper def = do
           #virtualStack .= newStack r2
           codegenBinOpHelper def
 
-computeFrameSize :: FunctionDef -> Map String FuncTypeSignature -> Int
+computeFrameSize :: forall target. (InstSelector target, RegisterAllocator target) => FunctionDef -> Map String FuncTypeSignature -> Int
 computeFrameSize func knownFuncDefs =
   let funcBody = func ^. #body
       localsCount = length $ collectLocals func
       maxStackDepth = computeMaxStackDepth funcBody 0 0
-      spillSlotsCount = max 0 (maxStackDepth - length rvTmpRegisters)
-      frameSlots = spillSlotsCount + localsCount + 1
-   in alignTo rvSpAlignment (frameSlots * regSize)
+      spillSlotsCount = max 0 (maxStackDepth - length (initialRegisterPool $ Proxy @target))
+      frameSlots = spillSlotsCount + localsCount +(extraFrameSlotsCount  $ Proxy @target)
+   in alignTo (spAlignment $ Proxy @target)  (frameSlots * (registerSize $ Proxy @target))
   where
     computeMaxStackDepth [] _ peakDepth = peakDepth
     computeMaxStackDepth (h:ts) currDepth peakDepth =
@@ -592,9 +352,6 @@ collectFunctionDefs program =
     [ (view (#prototype % #name) fn, view (#prototype % #signature) fn)
     | fn <- program
     ]
-
-alignTo :: Int -> Int -> Int
-alignTo alignment x = (x + (alignment - 1)) .&. (-alignment)
 
 is12BitsImm :: Immediate -> Bool
 is12BitsImm i = i >= -2048 && i <= 2047
