@@ -48,10 +48,6 @@ data Inst
   | InstX86 X86Inst
   deriving (Show)
 
-{- We target 64-bit RV64 right now -}
-regSize :: Int
-regSize = 8
-
 rvSpAlignment :: Int
 rvSpAlignment = 16
 

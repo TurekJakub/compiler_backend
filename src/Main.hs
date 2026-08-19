@@ -2,7 +2,8 @@ module Main
   ( main
   ) where
 
-import Asm (emitAssembly)
+import Abi (RiscVInst)
+import Asm (emitInstRvAssembly)
 import Codegen (codegen)
 import Ir
   ( FuncTypeSignature(FuncTypeSignature, argTypes, returnType)
@@ -77,6 +78,6 @@ testInput =
 
 main :: IO ()
 main = do
-  let codegenResult = codegen testInput
+  let codegenResult = codegen @RiscVInst testInput
   putStrLn "--- Generated RISC-V assembly ---"
-  putStr (emitAssembly codegenResult)
+  putStr (unlines $ map emitInstRvAssembly codegenResult)

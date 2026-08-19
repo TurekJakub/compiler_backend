@@ -7,20 +7,12 @@ module Lib
   ) where
 
 import Abi
-import Ir
+import Control.Monad.State
 import qualified Data.Map as Map
 import Data.Map (Map)
 import GHC.Generics (Generic)
-import Control.Monad.State
-import Data.Map (Map)
-
-import Control.Monad (forM_, when)
-import Data.Bits ((.&.))
-import Data.Containers.ListUtils (nubOrd)
-import GHC.Generics (Generic)
-import Optics
+import Ir
 import Optics.State.Operators ((%=), (.=))
-
 
 data VStackItem
   = Immediate Literal
@@ -39,7 +31,7 @@ type HwStackOffset = Int
 data CodegenState inst = CodegenState
   { virtualStack :: [VStackItem]
   , freeRegisters :: [Register]
-  , cache :: Map  CacheKey VStackItem
+  , cache :: Map CacheKey VStackItem
   , localVars :: Map VarName HwStackOffset
   , knowFuncDef :: Map String FuncTypeSignature
   , emittedCode :: [inst]

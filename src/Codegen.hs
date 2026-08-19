@@ -7,14 +7,11 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 
-
 module Codegen
   ( module Codegen
   ) where
 
 import Abi
-import Target
-import Lib
 import qualified Data.Map as Map
 import Ir
   ( FuncTypeSignature(FuncTypeSignature, argTypes, returnType)
@@ -24,24 +21,25 @@ import Ir
             Gt, Gte, IrLiteral, Label, Lt, Lte, Mod, Mul, SetLocal, Sub)
   , IrType(VoidType)
   , LabelName
-  , Literal(CharLiteral, IntLiteral)
+  , Literal(IntLiteral)
   , Program
-  , VarName
   )
+import Lib
+import Target
 
 import Control.Monad.State
 import Data.Map (Map)
 
 import Control.Monad (forM_, when)
-import Data.Bits ((.&.))
 import Data.Containers.ListUtils (nubOrd)
 import GHC.Generics (Generic)
 import Optics
 import Optics.State.Operators ((%=), (.=))
-import Control.Exception.Backtrace (setBacktraceMechanismState)
-import Data.Data (Proxy(Proxy))
 
-codegenToken :: InstSelector target => IrToken -> State (CodegenState target) ()
+codegenToken ::
+     forall target. (InstSelector target, RegisterAllocator target)
+  => IrToken
+  -> State (CodegenState target) ()
 codegenToken (IrLiteral lit) = #virtualStack %= (Immediate lit :)
 codegenToken (GetLocal varName) = do
   cachedReg <- use $ #cache % at (Var varName)
@@ -77,18 +75,16 @@ codegenToken (SetLocal varName) = do
       emit $ emitStore valueReg rvSpRegister varOffset
       #cache % at (Var varName) .= Just (Reg valueReg)
     _ -> error "Stack underflow in setLocal"
-
 codegenToken Add =
-  let addiEmitter = \r1 i1 -> emit (InstRV $ RV_Addi r1 r1 i1)
-   in let addDef =
-            BinOpDef
-              { opImplementation = codegenAdd 
-              , immediateFolding = addLiterals
-              , underflowErrMsg =
-                  "Stack underflow: there is not enough values to compute sum"
-              , generalErrMsg = "Tries to sum non numerical literals"
-              }
-       in codegenBinOpHelper addDef
+  let addDef =
+        BinOpDef
+          { opImplementation = codegenAdd
+          , immediateFolding = addLiterals
+          , underflowErrMsg =
+              "Stack underflow: there is not enough values to compute sum"
+          , generalErrMsg = "Tries to sum non numerical literals"
+          }
+   in codegenBinOpHelper addDef
 codegenToken Sub =
   let subDef =
         BinOpDef
@@ -109,12 +105,12 @@ codegenToken Mul =
           , generalErrMsg = "Tries to multiply non numerical literals"
           }
    in codegenBinOpHelper mulDef
-codegenToken (Label target) = do
-  blockChangeHelper target
-  emit (InstRV (RV_Label target))
+codegenToken (Label labelName) = do
+  blockChangeHelper labelName
+  emit $ emitLabel labelName
 codegenToken (Branch target) = do
   blockChangeHelper target
-  emit (InstRV (RV_J target))
+  emit $ emitJump target
   #virtualStack .= []
 codegenToken (ConditionalBranch target) = do
   vStack <- use #virtualStack
@@ -123,28 +119,28 @@ codegenToken (ConditionalBranch target) = do
       #virtualStack .= rest
       freeRegister r
       blockChangeHelper target
-      emit (InstRV (RV_Beq r rvZeroRegister target))
+      emit $ emitBranchIfEqual r rvZeroRegister target
     (Immediate (IntLiteral val):rest) -> do
       #virtualStack .= rest
       if val == 0
         then do
           blockChangeHelper target
-          emit (InstRV (RV_J target))
+          emit $ emitJump target
         else return ()
     (Spilled offset:rest) -> do
       #virtualStack .= rest
       tmp <- forceToReg $ Spilled offset
       blockChangeHelper target
-      emit (InstRV (RV_Beq tmp rvZeroRegister target))
+      emit $ emitBranchIfEqual tmp rvZeroRegister target
       freeRegister tmp
     [] -> error "Stack underflow: nothing to evaluate for ConditionalBranch"
     _ -> error "Invalid stack value for ConditionalBranch"
 codegenToken (FunctionCall funcName) = do
   funcSignature <- use (#knowFuncDef % at funcName)
   case funcSignature of
-    Just (FuncTypeSignature argsTypes _retType) -> do
+    Just (FuncTypeSignature argsTypes retType) -> do
       vStack <- use #virtualStack
-      let argsCount = (length argsTypes)
+      let argsCount = length argsTypes
       when (length vStack < argsCount)
         $ error
         $ "Stack underflow: not enough args to call function "
@@ -153,69 +149,29 @@ codegenToken (FunctionCall funcName) = do
             ++ show argsCount
             ++ " got "
             ++ show (length vStack)
-      let (args, stackRest) = splitAt (length argsTypes) vStack
+      let (args, stackRest) = splitAt argsCount vStack
+          argsRegsCount = funcArgumentsRegistersCount @target
+          argsInOrder = reverse args
+          (regArgs, memArgs) = splitAt argsRegsCount argsInOrder
       #virtualStack .= stackRest
-      let argsInOrder = reverse args
-      let (regArgs, memArgs) = splitAt 8 argsInOrder
       forM_ (zip ([0 ..] :: [Int]) regArgs) handleRegArgs
       handleMemArgs memArgs
-      emitCall funcName
-      restoreSp $ length memArgs
-      #virtualStack %= (Reg (Register "a0" GeneralPurpose) :)
+      returnValue <- emitCall funcName retType
+      when (length memArgs > 0) $ restoreSp $ length memArgs
+      #virtualStack %= (returnValue ++)
     Nothing -> error "Tries to call unknown function"
-  where
-    handleRegArgs (stackOffset, vStackItem) = do
-      let argReg = (Register ("a" ++ show stackOffset) GeneralPurpose)
-      case vStackItem of
-        Immediate (IntLiteral i) -> loadImmediate i argReg
-        Reg r -> do
-          emitMove argReg r
-          freeRegister r
-        Spilled offset -> do
-          emit $ InstRV (RV_Ld argReg rvSpRegister offset)
-          freeHwStackOffset offset
-        _ -> error "Unsupported type - only int Literals supported right now"
-    handleMemArgs memArgs =
-      let memArgCount = length memArgs
-       in when (memArgCount > 0) $ do
-            let argsBytes = alignTo rvSpAlignment (memArgCount * regSize)
-            forM_ (zip ([0 ..] :: [Int]) memArgs) $ \(i, arg) ->
-              pushToPhysStack (-argsBytes + (i * regSize)) arg
-            emit $ bumpSp $ -argsBytes
-    pushToPhysStack hwStackOffset toPush = do
-      regToPush <- forceToReg toPush
-      emit (InstRV $ RV_Sd regToPush rvSpRegister hwStackOffset)
-      freeRegister regToPush
-    restoreSp memArgsCount =
-      when (memArgsCount > 0) $ emit $ bumpSp $ memArgsCount * regSize
 codegenToken _ = return ()
 
-codegenFuncDefinition :: InstSelector target => FunctionDef -> Map String FuncTypeSignature -> [target]
+codegenFuncDefinition ::
+     forall target. (InstSelector target, RegisterAllocator target)
+  => FunctionDef
+  -> Map String FuncTypeSignature
+  -> [target]
 codegenFuncDefinition funcDef knowFuncDefs =
   let argsCount = length $ (view (#prototype % #signature % #argTypes) funcDef)
       retType = view (#prototype % #signature % #returnType) funcDef
-      frameSize = computeFrameSize funcDef knowFuncDefs
-      initialCache =
-        Map.fromList
-          [ if i < 8
-            then ( Var ("arg" ++ show i)
-                 , Reg (Register ("a" ++ show i) GeneralPurpose))
-            else ( Var ("arg" ++ show i)
-                 , Spilled (frameSize + (i - 8) * regSize))
-          | i <- [0 .. argsCount - 1]
-          ]
-      initState =
-        CodegenState
-          { virtualStack = [] -- Do not push arguments to stack right away, they will be lazy-loaded from cache on demand   
-          , freeRegisters = rvTmpRegisters
-          , cache = initialCache
-          , emittedCode = []
-          , knowFuncDef = knowFuncDefs
-          , localVars = Map.empty
-          , freeSpillOffsets = []
-          , nextSpillOffset = 0
-          , blockStackStates = Map.empty
-          }
+      frameSize = computeFrameSize @target funcDef knowFuncDefs
+      initState = initCodegen argsCount frameSize knowFuncDefs
       compilation = do
         mapM_ codegenToken (body funcDef)
         vStack <- use #virtualStack
@@ -232,10 +188,11 @@ codegenFuncDefinition funcDef knowFuncDefs =
             when (retType /= VoidType)
               $ error "Function vit non void return type must return value"
       codegenResult = execState compilation initState
-      raOffset = frameSize - regSize
+      {- 
+      raOffset = frameSize - registerSize @target
       funcPrologue =
         [ InstRV $ RV_Label $ view (#prototype % #name) funcDef
-        , bumpSp $ -frameSize
+        , bumpSp $ @target -frameSize
         , InstRV $ RV_Sd rvRaRegister rvSpRegister raOffset
         ]
       funcEpilog =
@@ -243,15 +200,22 @@ codegenFuncDefinition funcDef knowFuncDefs =
         , bumpSp frameSize
         , InstRV RV_Ret
         ]
-   in funcPrologue ++ reverse (emittedCode codegenResult) ++ funcEpilog
+      -}
+   in emitFuncProlog funcDef frameSize
+        ++ reverse (emittedCode codegenResult)
+        ++ emitFuncEpilog frameSize
 
-codegen :: forall target. InstSelector target => Program -> [target]
+codegen ::
+     forall target. InstSelector target
+  => Program
+  -> [target]
 codegen program =
   let knowFuncDefs = collectFunctionDefs program
       codegenResult = map (flip codegenFuncDefinition knowFuncDefs) program
    in concat . reverse $ codegenResult
 
-blockChangeHelper :: InstSelector target => LabelName -> State (CodegenState target) ()
+blockChangeHelper ::
+     InstSelector target => LabelName -> State (CodegenState target) ()
 blockChangeHelper target = do
   vStack <- use #virtualStack
   forcedVStack <- mapM (\item -> Reg <$> forceToReg item) vStack
@@ -269,17 +233,17 @@ blockChangeHelper target = do
       #virtualStack .= targetState
     Nothing -> #blockStackStates % at target .= Just forcedVStack
 
-
-type CodegenBinOpRegAndIme target = Register -> Immediate -> State (CodegenState target) ()
-
 data BinOpDef target = BinOpDef
-  {immediateFolding :: Literal -> Literal -> Maybe Literal
-  , opImplementation ::  VStackItem -> VStackItem -> State (CodegenState target) VStackItem
+  { immediateFolding :: Literal -> Literal -> Maybe Literal
+  , opImplementation :: VStackItem -> VStackItem -> State
+                                                      (CodegenState target)
+                                                      VStackItem
   , underflowErrMsg :: String
   , generalErrMsg :: String
   } deriving (Generic)
 
-codegenBinOpHelper :: InstSelector target => BinOpDef target -> State (CodegenState target) ()
+codegenBinOpHelper ::
+     InstSelector target => BinOpDef target -> State (CodegenState target) ()
 codegenBinOpHelper def = do
   vStack <- use #virtualStack
   case vStack of
@@ -289,29 +253,23 @@ codegenBinOpHelper def = do
         Nothing -> error $ def ^. #generalErrMsg -- "Tries to sum non numerical literals"
     (r1:r2:stackRest) -> do
       res <- (def ^. #opImplementation) r1 r2
-      #virtualStack .= (res : stackRest) 
-      
+      #virtualStack .= (res : stackRest)
     _ -> error $ def ^. #underflowErrMsg
-  where
-    handleImmediate r1 i1 stackRest newStack instEmitter =
-      if is12BitsImm i1 -- && not (def ^. #regOnlyInst)
-        then do
-          #virtualStack .= (Reg r1 : stackRest)
-          invalidateCacheLine $ Reg r1
-          instEmitter r1 i1
-        else do
-          r2 <- forceImmediateToReg i1
-          #virtualStack .= newStack r2
-          codegenBinOpHelper def
 
-computeFrameSize :: forall target. (InstSelector target, RegisterAllocator target) => FunctionDef -> Map String FuncTypeSignature -> Int
+computeFrameSize ::
+     forall target. (InstSelector target, RegisterAllocator target)
+  => FunctionDef
+  -> Map String FuncTypeSignature
+  -> Int
 computeFrameSize func knownFuncDefs =
   let funcBody = func ^. #body
       localsCount = length $ collectLocals func
       maxStackDepth = computeMaxStackDepth funcBody 0 0
-      spillSlotsCount = max 0 (maxStackDepth - length (initialRegisterPool $ Proxy @target))
-      frameSlots = spillSlotsCount + localsCount +(extraFrameSlotsCount  $ Proxy @target)
-   in alignTo (spAlignment $ Proxy @target)  (frameSlots * (registerSize $ Proxy @target))
+      spillSlotsCount =
+        max 0 (maxStackDepth - length (initialRegisterPool @target))
+      frameSlots =
+        spillSlotsCount + localsCount + (extraFrameSlotsCount @target)
+   in alignTo (spAlignment @target) (frameSlots * (registerSize @target))
   where
     computeMaxStackDepth [] _ peakDepth = peakDepth
     computeMaxStackDepth (h:ts) currDepth peakDepth =
@@ -352,9 +310,6 @@ collectFunctionDefs program =
     [ (view (#prototype % #name) fn, view (#prototype % #signature) fn)
     | fn <- program
     ]
-
-is12BitsImm :: Immediate -> Bool
-is12BitsImm i = i >= -2048 && i <= 2047
 
 addLiterals :: Literal -> Literal -> Maybe Literal
 addLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral (a + b))
