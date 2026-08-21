@@ -19,9 +19,9 @@ common warnings
 executable codegen
     import:           warnings
     main-is:          Main.hs
-    other-modules: Ir, Abi, Codegen, Lib, Asm, Target
+    other-modules: Ir, Codegen.Common, Codegen.Codegen, Target.Target, Target.Riscv.Rv64, Target.Riscv.Common, Asm.Asm, Asm.Riscv
     -- other-extensions:
-    build-depends:    base >= 4.19 && < 4.23, containers, mtl, optics
+    build-depends:    base >= 4.19 && < 4.23, containers, mtl, optics, text
     hs-source-dirs:   src
     default-language:   GHC2021
     default-extensions: GHC2024

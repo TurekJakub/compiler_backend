@@ -2,17 +2,27 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedLabels #-}
 
-module Lib
-  ( module Lib
+module Codegen.Common
+  ( module Codegen.Common
   ) where
 
-import Abi
 import Control.Monad.State
 import qualified Data.Map as Map
 import Data.Map (Map)
 import GHC.Generics (Generic)
 import Ir
 import Optics.State.Operators ((%=), (.=))
+
+data RegisterType =
+  GeneralPurpose
+  deriving (Enum, Show, Eq)
+
+data Register = Register
+  { regName :: String
+  , regType :: RegisterType
+  } deriving (Show, Eq)
+
+type Immediate = Int
 
 data VStackItem
   = Immediate Literal

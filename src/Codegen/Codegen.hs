@@ -7,11 +7,10 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 
-module Codegen
-  ( module Codegen
+module Codegen.Codegen
+  ( module Codegen.Codegen
   ) where
 
-import Abi
 import qualified Data.Map as Map
 import Ir
   ( FuncTypeSignature(FuncTypeSignature, argTypes, returnType)
@@ -24,8 +23,8 @@ import Ir
   , Literal(IntLiteral)
   , Program
   )
-import Lib
-import Target
+import Codegen.Common
+import Target.Target
 
 import Control.Monad.State
 import Data.Map (Map)
@@ -52,7 +51,7 @@ codegenToken (GetLocal varName) = do
           allocated <- allocateRegister
           #virtualStack %= (Reg allocated :)
           #cache % at (Var varName) .= Just (Reg allocated)
-          emit $ emitLoad allocated rvSpRegister varOffset
+          emit $ emitLoad allocated (spRegister @target) varOffset
         Nothing ->
           error
             $ "Tries to get value of undeclared local variable with label '"
@@ -72,7 +71,7 @@ codegenToken (SetLocal varName) = do
             #localVars % at varName .= Just offset
             pure offset
       valueReg <- forceToReg value
-      emit $ emitStore valueReg rvSpRegister varOffset
+      emit $ emitStore valueReg (spRegister @target) varOffset
       #cache % at (Var varName) .= Just (Reg valueReg)
     _ -> error "Stack underflow in setLocal"
 codegenToken Add =
@@ -115,11 +114,6 @@ codegenToken (Branch target) = do
 codegenToken (ConditionalBranch target) = do
   vStack <- use #virtualStack
   case vStack of
-    (Reg r:rest) -> do
-      #virtualStack .= rest
-      freeRegister r
-      blockChangeHelper target
-      emit $ emitBranchIfEqual r rvZeroRegister target
     (Immediate (IntLiteral val):rest) -> do
       #virtualStack .= rest
       if val == 0
@@ -127,14 +121,11 @@ codegenToken (ConditionalBranch target) = do
           blockChangeHelper target
           emit $ emitJump target
         else return ()
-    (Spilled offset:rest) -> do
+    (top:rest) -> do
       #virtualStack .= rest
-      tmp <- forceToReg $ Spilled offset
+      codegenBranchIfZero top target
       blockChangeHelper target
-      emit $ emitBranchIfEqual tmp rvZeroRegister target
-      freeRegister tmp
     [] -> error "Stack underflow: nothing to evaluate for ConditionalBranch"
-    _ -> error "Invalid stack value for ConditionalBranch"
 codegenToken (FunctionCall funcName) = do
   funcSignature <- use (#knowFuncDef % at funcName)
   case funcSignature of
@@ -178,7 +169,11 @@ codegenFuncDefinition funcDef knowFuncDefs =
         case vStack of
           [item] -> do
             tmp <- forceToReg item
-            emitMove rvA0Register tmp
+            case returnValueRegisters @target of
+              (retReg:_) -> emitMove retReg tmp
+              _ ->
+                error
+                  "There are no return value registers defined in target definition" -- This should never happened, implies backend target author error
             freeRegister tmp
           (h:rest) ->
             error
