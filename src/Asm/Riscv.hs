@@ -50,16 +50,36 @@ commonAsmEmitter (RV_Sw rs1 rs2 imm) =
     "sw"
     (getRegName rs1)
     ((getImm imm) <> "(" <> getRegName rs2 <> ")")
-commonAsmEmitter (RV_Addi rd rs imm) =
-  threeArgsInstHelper "addi" (getRegName rd) (getRegName rs) (getImm imm)
 commonAsmEmitter (RV_Add rd rs1 rs2) =
   threeArgsInstHelper "add" (getRegName rd) (getRegName rs1) (getRegName rs2)
-commonAsmEmitter (Rv_Mul rd rs1 rs2) =
-  threeArgsInstHelper "mul" (getRegName rd) (getRegName rs1) (getRegName rs2)
+commonAsmEmitter (RV_Addi rd rs imm) =
+  threeArgsInstHelper "addi" (getRegName rd) (getRegName rs) (getImm imm)
 commonAsmEmitter (RV_Sub rd rs1 rs2) =
   threeArgsInstHelper "sub" (getRegName rd) (getRegName rs1) (getRegName rs2)
+commonAsmEmitter (Rv_Mul rd rs1 rs2) =
+  threeArgsInstHelper "mul" (getRegName rd) (getRegName rs1) (getRegName rs2)
+commonAsmEmitter (Rv_Div rd rs1 rs2) =
+  threeArgsInstHelper "div" (getRegName rd) (getRegName rs1) (getRegName rs2)
+commonAsmEmitter (Rv_Rem rd rs1 rs2) =
+  threeArgsInstHelper "rem" (getRegName rd) (getRegName rs1) (getRegName rs2)
 commonAsmEmitter (RV_Slt rd rs1 rs2) =
   threeArgsInstHelper "slt" (getRegName rd) (getRegName rs1) (getRegName rs2)
+commonAsmEmitter (RV_Slti rd rs1 imm) =
+  threeArgsInstHelper "slti" (getRegName rd) (getRegName rs1) (getImm imm)
+commonAsmEmitter (RV_Sltiu rd rs1 imm) =
+  threeArgsInstHelper "sltiu" (getRegName rd) (getRegName rs1) (getImm imm)
+commonAsmEmitter (RV_And rd rs1 rs2) =
+  threeArgsInstHelper "and" (getRegName rd) (getRegName rs1) (getRegName rs2)
+commonAsmEmitter (RV_Andi rd rs1 imm) =
+  threeArgsInstHelper "andi" (getRegName rd) (getRegName rs1) (getImm imm)
+commonAsmEmitter (RV_Or rd rs1 rs2) =
+  threeArgsInstHelper "or" (getRegName rd) (getRegName rs1) (getRegName rs2)
+commonAsmEmitter (RV_Ori rd rs1 imm) =
+  threeArgsInstHelper "ori" (getRegName rd) (getRegName rs1) (getImm imm)
+commonAsmEmitter (RV_Xor rd rs1 rs2) =
+  threeArgsInstHelper "xor" (getRegName rd) (getRegName rs1) (getRegName rs2)
+commonAsmEmitter (RV_Xori rd rs1 imm) =
+  threeArgsInstHelper "xori" (getRegName rd) (getRegName rs1) (getImm imm)
 commonAsmEmitter (Rv_Mv rd rs) =
   twoArgsInstHelper "mv" (getRegName rd) (getRegName rs)
 commonAsmEmitter (RV_J label) = oneArgInstHelper "j" (fromString label)

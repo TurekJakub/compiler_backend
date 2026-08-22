@@ -9,16 +9,15 @@ import Ir
   ( FuncTypeSignature(FuncTypeSignature, argTypes, returnType)
   , FunctionDef(FunctionDef, body, prototype)
   , FunctionPrototype(FunctionPrototype, name, signature)
-  , IrToken(Add, Branch, ConditionalBranch, FunctionCall, GetLocal, IrLiteral, Label,
-            Mul, Sub)
+  , IrToken(Add, Branch, ConditionalBranch, Eq, FunctionCall, GetLocal, Gte, IrLiteral,
+            Label, Mul, Not, Sub)
   , IrType(IntType, VoidType)
   , Literal(IntLiteral)
   , Program
   )
-import Target.Riscv.Common (Rv64Inst, Rv32Inst)
-import Target.Riscv.Rv64 ()
+import Target.Riscv.Common (Rv32Inst, Rv64Inst)
 import Target.Riscv.Rv32 ()
-
+import Target.Riscv.Rv64 ()
 
 testInput :: Program
 testInput =
@@ -38,7 +37,7 @@ testInput =
           , IrLiteral $ IntLiteral 5
           , IrLiteral $ IntLiteral 6
           , IrLiteral $ IntLiteral 7
-          , IrLiteral $ IntLiteral (-35)
+          , IrLiteral $ IntLiteral 8
           , FunctionCall "test"
           ]
       }
@@ -63,13 +62,16 @@ testInput =
                   }
             }
       , body =
-          [ GetLocal "arg8"
+          [ GetLocal "arg8" {-
           , IrLiteral (IntLiteral 42)
           , Add
           , IrLiteral (IntLiteral 7)
           , Sub
           , IrLiteral (IntLiteral 42)
-          , Mul
+          , Mul-}
+          , IrLiteral $ IntLiteral 8
+          , Eq
+          , Not
           , ConditionalBranch "UwU"
           , IrLiteral (IntLiteral 10)
           , Branch "OwO"

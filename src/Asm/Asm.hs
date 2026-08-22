@@ -12,7 +12,8 @@ class AsmPrinter asmType where
 
 emitAssembly :: AsmPrinter asmType => [asmType] -> Builder
 emitAssembly insts =
-  ".globl main\n.text\n" <> foldMap (\inst -> emitInstAssembly inst <> singleton '\n') insts
+  ".globl main\n.text\n"
+    <> foldMap (\inst -> emitInstAssembly inst <> singleton '\n') insts
 
 printAssembly :: AsmPrinter asmType => [asmType] -> IO ()
 printAssembly insts = TextIO.putStr $ toLazyText (emitAssembly insts)

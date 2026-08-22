@@ -42,6 +42,7 @@ data IrToken
   | Gt
   | Gte
   | Eq
+  | Not
   deriving (Show, Eq, Ord)
 
 data IrType

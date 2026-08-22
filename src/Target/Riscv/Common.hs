@@ -5,28 +5,15 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 
-
-
 module Target.Riscv.Common
   ( module Target.Riscv.Common
   ) where
 
-import Control.Monad.State ( State )
 import GHC.Generics (Generic)
-import Ir (LabelName, Literal(IntLiteral), FuncTypeSignature)
+
 import Codegen.Common
-  ( CodegenState
-  , Immediate
-  , Register(Register)
-  , RegisterType(GeneralPurpose)
-  , VStackItem(Immediate, Reg)
-  , freeRegister
-  , invalidateCacheLine
-  )
-import Optics ( (^.) )
-import Target.Target (InstSelector(forceToReg), is12BitsImm, Arch(..))
 import Ir
-import Codegen.Common
+import Target.Target (Arch(..), is12BitsImm)
 
 import Control.Monad.State
 import Data.Map (Map)
@@ -39,11 +26,10 @@ import Target.Target
   ( InstSelector(..)
   , RegisterAllocator(initialRegisterPool)
   , emit
-  , is12BitsImm
   )
 
-
 type Rv64Inst = RiscVInst 'RV64
+
 type Rv32Inst = RiscVInst 'RV32
 
 data RiscVInst (a :: Arch) where
@@ -54,7 +40,17 @@ data RiscVInst (a :: Arch) where
   RV_Addi :: Register -> Register -> Immediate -> RiscVInst a
   RV_Sub :: Register -> Register -> Register -> RiscVInst a
   Rv_Mul :: Register -> Register -> Register -> RiscVInst a
+  Rv_Div :: Register -> Register -> Register -> RiscVInst a
+  Rv_Rem :: Register -> Register -> Register -> RiscVInst a
   RV_Slt :: Register -> Register -> Register -> RiscVInst a
+  RV_Slti :: Register -> Register -> Immediate -> RiscVInst a
+  RV_Sltiu :: Register -> Register -> Immediate -> RiscVInst a
+  RV_And :: Register -> Register -> Register -> RiscVInst a
+  RV_Andi :: Register -> Register -> Immediate -> RiscVInst a
+  RV_Or :: Register -> Register -> Register -> RiscVInst a
+  RV_Ori :: Register -> Register -> Immediate -> RiscVInst a
+  RV_Xor :: Register -> Register -> Register -> RiscVInst a
+  RV_Xori :: Register -> Register -> Immediate -> RiscVInst a
   RV_J :: LabelName -> RiscVInst a
   RV_Label :: LabelName -> RiscVInst a
   RV_Beq :: Register -> Register -> LabelName -> RiscVInst a
@@ -72,19 +68,24 @@ data RiscVInst (a :: Arch) where
 rvZeroRegister :: Register
 rvZeroRegister = Register "zero" GeneralPurpose
 
-type ImmRegBinOpCodegen (a :: Arch)  = Register -> Register -> Immediate -> State (CodegenState (RiscVInst a)) ()
+type ImmRegBinOpCodegen (a :: Arch)
+  = Register -> Register -> Immediate -> State (CodegenState (RiscVInst a)) ()
+
 data BinOpDefinition (a :: Arch) = BinOpDefinition
-  { regToRegCodegen :: Register -> Register -> Register -> State (CodegenState(RiscVInst a))()
+  { regToRegCodegen :: Register -> Register -> Register -> State
+                                                             (CodegenState
+                                                                (RiscVInst a))
+                                                             ()
   , immToRegCodegen :: Maybe (ImmRegBinOpCodegen a)
   , regToImmCodegen :: Maybe (ImmRegBinOpCodegen a)
   } deriving (Generic)
 
 binCodgenOpHelper ::
-     InstSelector (RiscVInst (a::Arch))
+     InstSelector (RiscVInst (a :: Arch))
   => VStackItem
   -> VStackItem
   -> (BinOpDefinition a)
-  -> State (CodegenState (RiscVInst (a::Arch))) VStackItem
+  -> State (CodegenState (RiscVInst (a :: Arch))) VStackItem
 binCodgenOpHelper lhs rhs binOpDef =
   case (lhs, rhs) of
     (Reg r1, Reg r2) -> do
@@ -126,29 +127,60 @@ binCodgenOpHelper lhs rhs binOpDef =
           pure res
         else genericCodgen
 
-rvInitCodegen :: forall target allocator . (InstSelector target, RegisterAllocator allocator) =>  Int -> Int -> Map String FuncTypeSignature -> CodegenState target
+notBinOpDef :: BinOpDefinition a -> BinOpDefinition a
+notBinOpDef def =
+  BinOpDefinition
+    { regToRegCodegen =
+        \t r1 r2 -> regToRegCodegen def t r1 r2 >> (emit $ rvEmitLogicalNot t t)
+    , immToRegCodegen =
+        (\f t r imm -> f t r imm >> (emit $ rvEmitLogicalNot t t))
+          <$> def ^. #immToRegCodegen
+    , regToImmCodegen =
+        (\f t r imm -> f t r imm >> (emit $ rvEmitLogicalNot t t))
+          <$> def ^. #regToImmCodegen
+    }
+
+flipBinOpDef :: BinOpDefinition a -> BinOpDefinition a
+flipBinOpDef def =
+  BinOpDefinition
+    { regToRegCodegen = \t r1 r2 -> regToRegCodegen def t r2 r1
+    , immToRegCodegen = regToImmCodegen def
+    , regToImmCodegen = immToRegCodegen def
+    }
+
+rvInitCodegen ::
+     forall target allocator. (InstSelector target, RegisterAllocator allocator)
+  => Int
+  -> Int
+  -> Map String FuncTypeSignature
+  -> CodegenState target
 rvInitCodegen argsCount frameSize knowFuncDefs =
-    let initialCache =
-          Map.fromList
-            [ if i < 8
-              then ( Var ("arg" ++ show i)
-                   , Reg (Register ("a" ++ show i) GeneralPurpose))
-              else ( Var ("arg" ++ show i)
-                   , Spilled (frameSize + (i - 8) * registerSize @target))
-            | i <- [0 .. argsCount - 1]
-            ]
-     in CodegenState
-          { virtualStack = [] -- Do not push arguments to stack right away, they will be lazy-loaded from cache on demand   
-          , freeRegisters = (initialRegisterPool @allocator)
-          , cache = initialCache
-          , emittedCode = []
-          , knowFuncDef = knowFuncDefs
-          , localVars = Map.empty
-          , freeSpillOffsets = []
-          , nextSpillOffset = 0
-          , blockStackStates = Map.empty
-          }
-rvCodegenAdd :: forall (a :: Arch). InstSelector (RiscVInst a) =>  VStackItem -> VStackItem -> State (CodegenState (RiscVInst a)) VStackItem
+  let initialCache =
+        Map.fromList
+          [ if i < 8
+            then ( Var ("arg" ++ show i)
+                 , Reg (Register ("a" ++ show i) GeneralPurpose))
+            else ( Var ("arg" ++ show i)
+                 , Spilled (frameSize + (i - 8) * registerSize @target))
+          | i <- [0 .. argsCount - 1]
+          ]
+   in CodegenState
+        { virtualStack = [] -- Do not push arguments to stack right away, they will be lazy-loaded from cache on demand   
+        , freeRegisters = (initialRegisterPool @allocator)
+        , cache = initialCache
+        , emittedCode = []
+        , knowFuncDef = knowFuncDefs
+        , localVars = Map.empty
+        , freeSpillOffsets = []
+        , nextSpillOffset = 0
+        , blockStackStates = Map.empty
+        }
+
+rvCodegenAdd ::
+     forall (a :: Arch). InstSelector (RiscVInst a)
+  => VStackItem
+  -> VStackItem
+  -> State (CodegenState (RiscVInst a)) VStackItem
 rvCodegenAdd lhs rhs =
   let addDef =
         BinOpDefinition
@@ -160,7 +192,11 @@ rvCodegenAdd lhs rhs =
   where
     addiCodegen tar reg imm = emit $ RV_Addi tar reg imm
 
-rvCodegenSub ::  forall (a :: Arch). InstSelector (RiscVInst a) => VStackItem -> VStackItem -> State (CodegenState  (RiscVInst a)) VStackItem
+rvCodegenSub ::
+     forall (a :: Arch). InstSelector (RiscVInst a)
+  => VStackItem
+  -> VStackItem
+  -> State (CodegenState (RiscVInst a)) VStackItem
 rvCodegenSub lhs rhs =
   let subDef =
         BinOpDefinition
@@ -179,7 +215,12 @@ rvCodegenSub lhs rhs =
                     freeRegister tmp
           }
    in binCodgenOpHelper lhs rhs subDef
-rvCodegenMul :: forall (a :: Arch). InstSelector (RiscVInst a) => VStackItem -> VStackItem -> State (CodegenState (RiscVInst a)) VStackItem
+
+rvCodegenMul ::
+     forall (a :: Arch). InstSelector (RiscVInst a)
+  => VStackItem
+  -> VStackItem
+  -> State (CodegenState (RiscVInst a)) VStackItem
 rvCodegenMul lhs rhs =
   let mulDef =
         BinOpDefinition
@@ -189,7 +230,118 @@ rvCodegenMul lhs rhs =
           }
    in binCodgenOpHelper lhs rhs mulDef
 
-rvCodegenBranchIfZero :: forall (a :: Arch). InstSelector (RiscVInst a) => VStackItem -> String -> State (CodegenState (RiscVInst a)) ()
+rvCodegenDiv ::
+     forall (a :: Arch). InstSelector (RiscVInst a)
+  => VStackItem
+  -> VStackItem
+  -> State (CodegenState (RiscVInst a)) VStackItem
+rvCodegenDiv lhs rhs =
+  let divDef =
+        BinOpDefinition
+          { regToRegCodegen = \t r1 r2 -> emit $ Rv_Div t r1 r2
+          , regToImmCodegen = Nothing
+          , immToRegCodegen = Nothing
+          }
+   in binCodgenOpHelper lhs rhs divDef
+
+rvCodegenMod ::
+     forall (a :: Arch). InstSelector (RiscVInst a)
+  => VStackItem
+  -> VStackItem
+  -> State (CodegenState (RiscVInst a)) VStackItem
+rvCodegenMod lhs rhs =
+  let modDef =
+        BinOpDefinition
+          { regToRegCodegen = \t r1 r2 -> emit $ Rv_Rem t r1 r2
+          , regToImmCodegen = Nothing
+          , immToRegCodegen = Nothing
+          }
+   in binCodgenOpHelper lhs rhs modDef
+
+rvLtDef :: BinOpDefinition a
+rvLtDef =
+  BinOpDefinition
+    { regToRegCodegen = \t r1 r2 -> emit $ RV_Slt t r1 r2
+    , regToImmCodegen =
+        Just $ \t r1 imm -> do
+          emit $ RV_Slti t r1 (imm + 1)
+          emit $ RV_Xori t t 1
+    , immToRegCodegen = Just $ \t r1 imm -> emit $ RV_Slti t r1 imm
+    }
+
+rvCodegenLt ::
+     forall (a :: Arch). InstSelector (RiscVInst a)
+  => VStackItem
+  -> VStackItem
+  -> State (CodegenState (RiscVInst a)) VStackItem
+rvCodegenLt lhs rhs = binCodgenOpHelper lhs rhs rvLtDef
+
+rvCodegenLte ::
+     forall (a :: Arch). InstSelector (RiscVInst a)
+  => VStackItem
+  -> VStackItem
+  -> State (CodegenState (RiscVInst a)) VStackItem
+rvCodegenLte lhs rhs =
+  binCodgenOpHelper lhs rhs (notBinOpDef $ flipBinOpDef rvLtDef)
+
+rvCodegenGt ::
+     forall (a :: Arch). InstSelector (RiscVInst a)
+  => VStackItem
+  -> VStackItem
+  -> State (CodegenState (RiscVInst a)) VStackItem
+rvCodegenGt lhs rhs = binCodgenOpHelper lhs rhs (flipBinOpDef rvLtDef)
+
+rvCodegenGte ::
+     forall (a :: Arch). InstSelector (RiscVInst a)
+  => VStackItem
+  -> VStackItem
+  -> State (CodegenState (RiscVInst a)) VStackItem
+rvCodegenGte lhs rhs = binCodgenOpHelper lhs rhs (notBinOpDef rvLtDef)
+
+rvCodegenEq ::
+     forall (a :: Arch). InstSelector (RiscVInst a)
+  => VStackItem
+  -> VStackItem
+  -> State (CodegenState (RiscVInst a)) VStackItem
+rvCodegenEq lhs rhs =
+  let eqDef =
+        BinOpDefinition
+          { regToRegCodegen =
+              \t r1 r2 -> do
+                emit $ RV_Xor t r1 r2
+                emit $ RV_Sltiu t t 1
+          , immToRegCodegen =
+              Just $ \t r1 imm -> do
+                emit $ RV_Xori t r1 imm
+                emit $ RV_Sltiu t t 1
+          , regToImmCodegen =
+              Just $ \t r1 imm -> do
+                emit $ RV_Xori t r1 imm
+                emit $ RV_Sltiu t t 1
+          }
+   in binCodgenOpHelper lhs rhs eqDef
+
+rvCodegenLogicalNot ::
+     forall (a :: Arch). InstSelector (RiscVInst a)
+  => VStackItem
+  -> State (CodegenState (RiscVInst a)) VStackItem
+rvCodegenLogicalNot operand =
+  case operand of
+    (Reg r) -> do
+      emit $ rvEmitLogicalNot r r
+      pure $ Reg r
+    (Spilled _) -> do
+      reg <- forceToReg operand
+      emit $ rvEmitLogicalNot reg reg
+      pure $ Reg reg
+    (Immediate _) ->
+      error "Constant folding should be handled by general codegen pass"
+
+rvCodegenBranchIfZero ::
+     forall (a :: Arch). InstSelector (RiscVInst a)
+  => VStackItem
+  -> String
+  -> State (CodegenState (RiscVInst a)) ()
 rvCodegenBranchIfZero precedent target =
   case precedent of
     Reg pr -> do
@@ -200,24 +352,40 @@ rvCodegenBranchIfZero precedent target =
       emit $ RV_Beq tmp rvZeroRegister target
       freeRegister tmp
     _ -> return () -- This should be handled by generic codegen pass
-rvLoadImmediate :: forall (a :: Arch). InstSelector (RiscVInst a) => Immediate -> Register -> State (CodegenState (RiscVInst a)) ()
+
+rvLoadImmediate ::
+     forall (a :: Arch). InstSelector (RiscVInst a)
+  => Immediate
+  -> Register
+  -> State (CodegenState (RiscVInst a)) ()
 rvLoadImmediate imm reg = do
   #cache % at (Const imm) .= Just (Reg reg)
   emit $ RV_Li reg imm
-  {-
-  emitLoad :: Register -> Register -> Immediate -> Rv64Inst
-  emitLoad target src offset = RV_Ld target src offset
-  emitStore :: Register -> Register -> Immediate -> Rv64Inst
-  emitStore src targetAddr offset = RV_Sd src targetAddr offset
-  -}
-rvEmitAddi :: forall (a :: Arch). InstSelector (RiscVInst a) => Register -> Register -> Immediate -> (RiscVInst a)
+
+rvEmitAddi ::
+     forall (a :: Arch). InstSelector (RiscVInst a)
+  => Register
+  -> Register
+  -> Immediate
+  -> (RiscVInst a)
 rvEmitAddi target r i = RV_Addi target r i
-rvEmitMove :: forall (a :: Arch). InstSelector (RiscVInst a) => Register -> Register -> State (CodegenState (RiscVInst a)) ()
+
+rvEmitMove ::
+     forall (a :: Arch). InstSelector (RiscVInst a)
+  => Register
+  -> Register
+  -> State (CodegenState (RiscVInst a)) ()
 rvEmitMove r1 r2 =
   if r1 /= r2
     then emit $ Rv_Mv r1 r2
     else return ()
-rvEmitCall ::  forall (a :: Arch). (InstSelector (RiscVInst a), RegisterAllocator(RiscVInst a) ) => String -> IrType -> State (CodegenState (RiscVInst a)) [VStackItem]
+
+rvEmitCall ::
+     forall (a :: Arch).
+     (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
+  => String
+  -> IrType
+  -> State (CodegenState (RiscVInst a)) [VStackItem]
 rvEmitCall callee retType = do
   invalidateCache
   emit $ RV_Call callee
@@ -230,44 +398,71 @@ rvEmitCall callee retType = do
           error
             "There are no return value registers defined in target definition" -- This should never happened, implies backend target author error
     _ -> error "Only void and int return types are supported right now"
+
 rvEmitLabel :: String -> (RiscVInst a)
 rvEmitLabel labelName = RV_Label labelName
+
 rvEmitJump :: String -> (RiscVInst a)
 rvEmitJump target = RV_J target
+
 rvEmitBranchIfEqual :: Register -> Register -> String -> (RiscVInst a)
 rvEmitBranchIfEqual lhs rhs target = RV_Beq lhs rhs target
-rvEmitFuncProlog ::forall (a :: Arch). (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a)) => FunctionDef -> Int -> [(RiscVInst a)]
+
+rvEmitLogicalNot :: Register -> Register -> RiscVInst a
+rvEmitLogicalNot r1 r2 = RV_Xori r1 r2 1
+
+rvEmitFuncProlog ::
+     forall (a :: Arch).
+     (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
+  => FunctionDef
+  -> Int
+  -> [(RiscVInst a)]
 rvEmitFuncProlog funcDef funcFrameSize =
   let raOffset = getRaOffset funcFrameSize (registerSize @(RiscVInst a))
    in [ RV_Label $ view (#prototype % #name) funcDef
       , bumpSp @(RiscVInst a) (-funcFrameSize)
-      , emitStore (raRegister @(RiscVInst a)) (spRegister @(RiscVInst a)) raOffset  --RV_Sd (raRegister @(RiscVInst a)) (spRegister @(RiscVInst a)) raOffset
+      , emitStore
+          (raRegister @(RiscVInst a))
+          (spRegister @(RiscVInst a))
+          raOffset --RV_Sd (raRegister @(RiscVInst a)) (spRegister @(RiscVInst a)) raOffset
       ]
-rvEmitFuncEpilog :: forall (a :: Arch). (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a)) => Int -> [(RiscVInst a)]
+
+rvEmitFuncEpilog ::
+     forall (a :: Arch).
+     (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
+  => Int
+  -> [(RiscVInst a)]
 rvEmitFuncEpilog funcFrameSize =
   let raOffset = getRaOffset funcFrameSize (registerSize @(RiscVInst a))
-   in [ emitLoad (raRegister @(RiscVInst a)) (spRegister @(RiscVInst a)) raOffset
+   in [ emitLoad
+          (raRegister @(RiscVInst a))
+          (spRegister @(RiscVInst a))
+          raOffset
       , bumpSp funcFrameSize
       , RV_Ret
       ]
+
 rvSpRegister :: Register
 rvSpRegister = Register "sp" GeneralPurpose
+
 rvRaRegister :: Register
 rvRaRegister = Register "ra" GeneralPurpose
+
 rvReturnValueRegisters :: [Register]
 rvReturnValueRegisters = [Register "a0" GeneralPurpose]
+
 rvSpAlignment :: Int
 rvSpAlignment = 16
+
 rvExtraFrameSlotsCount :: Int
 rvExtraFrameSlotsCount = 1
+
 rvFuncArgumentsRegistersCount :: Int
 rvFuncArgumentsRegistersCount = 8
 
 rvInitialRegisterPool :: [Register]
 rvInitialRegisterPool =
-    map (\n -> Register ("t" ++ show n) GeneralPurpose) ([0 .. 6] :: [Int])
-
-
+  map (\n -> Register ("t" ++ show n) GeneralPurpose) ([0 .. 6] :: [Int])
 
 getRaOffset :: Int -> Int -> Int
-getRaOffset funcFrameSize regSize= funcFrameSize - regSize
+getRaOffset funcFrameSize regSize = funcFrameSize - regSize

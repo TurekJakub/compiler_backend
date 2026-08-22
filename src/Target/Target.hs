@@ -8,8 +8,8 @@ module Target.Target
   ( module Target.Target
   ) where
 
-import Ir
 import Codegen.Common
+import Ir
 
 import Control.Monad.State
 import Data.Map (Map)
@@ -20,7 +20,6 @@ import Optics
 import Optics.State.Operators ((%=), (.=))
 
 import qualified Data.Map as Map
-
 
 data Arch
   = RV32
@@ -118,6 +117,21 @@ class RegisterAllocator target =>
        VStackItem -> VStackItem -> State (CodegenState target) VStackItem
   codegenMul ::
        VStackItem -> VStackItem -> State (CodegenState target) VStackItem
+  codegenDiv ::
+       VStackItem -> VStackItem -> State (CodegenState target) VStackItem
+  codegenMod ::
+       VStackItem -> VStackItem -> State (CodegenState target) VStackItem
+  codegenLt ::
+       VStackItem -> VStackItem -> State (CodegenState target) VStackItem
+  codegenLte ::
+       VStackItem -> VStackItem -> State (CodegenState target) VStackItem
+  codegenGt ::
+       VStackItem -> VStackItem -> State (CodegenState target) VStackItem
+  codegenGte ::
+       VStackItem -> VStackItem -> State (CodegenState target) VStackItem
+  codegenEq ::
+       VStackItem -> VStackItem -> State (CodegenState target) VStackItem
+  codegenNot :: VStackItem -> State (CodegenState target) VStackItem
   codegenBranchIfZero :: VStackItem -> String -> State (CodegenState target) ()
   emitLoad :: Register -> Register -> Immediate -> target
   emitStore :: Register -> Register -> Immediate -> target
@@ -177,7 +191,6 @@ class RegisterAllocator target =>
   extraFrameSlotsCount :: Int
   registerSize :: Int
   funcArgumentsRegistersCount :: Int
-
 
 class RegisterAllocator target where
   allocateRegister ::
@@ -253,7 +266,6 @@ class RegisterAllocator target where
     pure $ [r | (_, Reg r) <- Map.toList cached, r `notElem` activeRegisters]
   initialRegisterPool :: [Register]
 
-  
 emit :: inst -> State (CodegenState inst) ()
 emit inst = #emittedCode %= (inst :)
 
@@ -262,4 +274,3 @@ alignTo alignment x = (x + (alignment - 1)) .&. (-alignment)
 
 is12BitsImm :: Immediate -> Bool
 is12BitsImm i = i >= -2048 && i <= 2047
-

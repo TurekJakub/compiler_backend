@@ -11,25 +11,26 @@ module Codegen.Codegen
   ( module Codegen.Codegen
   ) where
 
+import Codegen.Common
 import qualified Data.Map as Map
 import Ir
   ( FuncTypeSignature(FuncTypeSignature, argTypes, returnType)
   , FunctionDef(body, prototype)
   , FunctionPrototype(name, signature)
   , IrToken(Add, Branch, ConditionalBranch, Div, Drop, Eq, FunctionCall, GetLocal,
-            Gt, Gte, IrLiteral, Label, Lt, Lte, Mod, Mul, SetLocal, Sub)
+            Gt, Gte, IrLiteral, Label, Lt, Lte, Mod, Mul, Not, SetLocal, Sub)
   , IrType(VoidType)
   , LabelName
   , Literal(IntLiteral)
   , Program
   )
-import Codegen.Common
 import Target.Target
 
 import Control.Monad.State
 import Data.Map (Map)
 
 import Control.Monad (forM_, when)
+import Data.Bool (bool)
 import Data.Containers.ListUtils (nubOrd)
 import GHC.Generics (Generic)
 import Optics
@@ -43,11 +44,12 @@ codegenToken (IrLiteral lit) = #virtualStack %= (Immediate lit :)
 codegenToken (GetLocal varName) = do
   cachedReg <- use $ #cache % at (Var varName)
   case cachedReg of
-    Just c -> case c of 
-      Spilled _ -> do
-       reg <- forceToReg c
-       #virtualStack %= (Reg reg :)
-      _ -> #virtualStack %= (c :)
+    Just c ->
+      case c of
+        Spilled _ -> do
+          reg <- forceToReg c
+          #virtualStack %= (Reg reg :)
+        _ -> #virtualStack %= (c :)
     Nothing -> do
       var <- use (#localVars % at varName)
       case var of
@@ -108,6 +110,93 @@ codegenToken Mul =
           , generalErrMsg = "Tries to multiply non numerical literals"
           }
    in codegenBinOpHelper mulDef
+codegenToken Div =
+  let divDef =
+        BinOpDef
+          { opImplementation = codegenDiv
+          , immediateFolding = divLiterals
+          , underflowErrMsg =
+              "Stack underflow: there is not enough values for division"
+          , generalErrMsg = "Tries to divide non numerical literals"
+          }
+   in codegenBinOpHelper divDef
+codegenToken Mod =
+  let modDef =
+        BinOpDef
+          { opImplementation = codegenMod
+          , immediateFolding = modLiterals
+          , underflowErrMsg =
+              "Stack underflow: there is not enough values to compute modulo"
+          , generalErrMsg = "Tries to modulo non numerical literals"
+          }
+   in codegenBinOpHelper modDef
+codegenToken Lt =
+  let ltDef =
+        BinOpDef
+          { opImplementation = codegenLt
+          , immediateFolding = ltLiterals
+          , underflowErrMsg =
+              "Stack underflow: there is not enough values to perform less than comparison"
+          , generalErrMsg = "Tries to compare (less than) non numerical values"
+          }
+   in codegenBinOpHelper ltDef
+codegenToken Lte =
+  let lteDef =
+        BinOpDef
+          { opImplementation = codegenLte
+          , immediateFolding = lteLiterals
+          , underflowErrMsg =
+              "Stack underflow: there is not enough values to perform less or equal than comparison"
+          , generalErrMsg =
+              "Tries to compare (less or equal than) non numerical values"
+          }
+   in codegenBinOpHelper lteDef
+codegenToken Gt =
+  let gtDef =
+        BinOpDef
+          { opImplementation = codegenGt
+          , immediateFolding = gtLiterals
+          , underflowErrMsg =
+              "Stack underflow: there is not enough values to perform greater than comparison"
+          , generalErrMsg =
+              "Tries to compare (greater than) non numerical values"
+          }
+   in codegenBinOpHelper gtDef
+codegenToken Gte =
+  let gteDef =
+        BinOpDef
+          { opImplementation = codegenGte
+          , immediateFolding = gteLiterals
+          , underflowErrMsg =
+              "Stack underflow: there is not enough values to perform greater or equal than comparison"
+          , generalErrMsg =
+              "Tries to compare (greater or equal than) non numerical values"
+          }
+   in codegenBinOpHelper gteDef
+codegenToken Eq =
+  let gteDef =
+        BinOpDef
+          { opImplementation = codegenEq
+          , immediateFolding = eqLiterals
+          , underflowErrMsg =
+              "Stack underflow: there is not enough values to perform equality comparison"
+          , generalErrMsg =
+              "Tries to test equality of incomparable values values"
+          }
+   in codegenBinOpHelper gteDef
+codegenToken Not = do
+  vStack <- use #virtualStack
+  case vStack of
+    (Immediate (IntLiteral i):rest) -> do
+      let notI =
+            if i == 0
+              then 1
+              else 0
+      #virtualStack .= ((Immediate $ IntLiteral notI) : rest)
+    (toNegate:stackRest) -> do
+      notVal <- codegenNot toNegate
+      #virtualStack .= (notVal : stackRest)
+    _ -> error "Stack underflow: can not perform logical not on empty stack"
 codegenToken (Label labelName) = do
   blockChangeHelper labelName
   emit $ emitLabel labelName
@@ -187,19 +276,6 @@ codegenFuncDefinition funcDef knowFuncDefs =
             when (retType /= VoidType)
               $ error "Function vit non void return type must return value"
       codegenResult = execState compilation initState
-      {- 
-      raOffset = frameSize - registerSize @target
-      funcPrologue =
-        [ InstRV $ RV_Label $ view (#prototype % #name) funcDef
-        , bumpSp $ @target -frameSize
-        , InstRV $ RV_Sd rvRaRegister rvSpRegister raOffset
-        ]
-      funcEpilog =
-        [ InstRV $ RV_Ld rvRaRegister rvSpRegister raOffset
-        , bumpSp frameSize
-        , InstRV RV_Ret
-        ]
-      -}
    in emitFuncProlog funcDef frameSize
         ++ reverse (emittedCode codegenResult)
         ++ emitFuncEpilog frameSize
@@ -291,6 +367,7 @@ computeFrameSize func knownFuncDefs =
         Gt -> -1
         Gte -> -1
         Eq -> -1
+        Not -> 0
         Div -> -1
         Branch _ -> 0
         Label _ -> 0
@@ -311,13 +388,43 @@ collectFunctionDefs program =
     ]
 
 addLiterals :: Literal -> Literal -> Maybe Literal
-addLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral (a + b))
+addLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral $ a + b)
 addLiterals _ _ = Nothing
 
 subLiterals :: Literal -> Literal -> Maybe Literal
-subLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral (a - b))
+subLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral $ a - b)
 subLiterals _ _ = Nothing
 
 mulLiterals :: Literal -> Literal -> Maybe Literal
-mulLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral (a * b))
+mulLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral $ a * b)
 mulLiterals _ _ = Nothing
+
+divLiterals :: Literal -> Literal -> Maybe Literal
+divLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral $ a `div` b)
+divLiterals _ _ = Nothing
+
+modLiterals :: Literal -> Literal -> Maybe Literal
+modLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral $ a `mod` b)
+modLiterals _ _ = Nothing
+
+ltLiterals :: Literal -> Literal -> Maybe Literal
+ltLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral $ bool 0 1 $ a < b)
+ltLiterals _ _ = Nothing
+
+lteLiterals :: Literal -> Literal -> Maybe Literal
+lteLiterals (IntLiteral a) (IntLiteral b) =
+  Just (IntLiteral $ bool 0 1 $ a <= b)
+lteLiterals _ _ = Nothing
+
+gtLiterals :: Literal -> Literal -> Maybe Literal
+gtLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral $ bool 0 1 $ a > b)
+gtLiterals _ _ = Nothing
+
+gteLiterals :: Literal -> Literal -> Maybe Literal
+gteLiterals (IntLiteral a) (IntLiteral b) =
+  Just (IntLiteral $ bool 0 1 $ a >= b)
+gteLiterals _ _ = Nothing
+
+eqLiterals :: Literal -> Literal -> Maybe Literal
+eqLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral $ bool 0 1 $ a == b)
+eqLiterals _ _ = Nothing
