@@ -15,8 +15,10 @@ import Ir
   , Literal(IntLiteral)
   , Program
   )
-import Target.Riscv.Common (Rv64Inst)
+import Target.Riscv.Common (Rv64Inst, Rv32Inst)
 import Target.Riscv.Rv64 ()
+import Target.Riscv.Rv32 ()
+
 
 testInput :: Program
 testInput =
@@ -80,6 +82,6 @@ testInput =
 
 main :: IO ()
 main = do
-  let codegenResult = codegen @Rv64Inst testInput
+  let codegenResult = codegen @Rv32Inst testInput
   putStrLn "--- Generated RISC-V assembly ---"
   printAssembly codegenResult
