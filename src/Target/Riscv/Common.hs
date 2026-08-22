@@ -99,6 +99,14 @@ binCodgenOpHelper lhs rhs binOpDef =
     (Immediate (IntLiteral i1), Reg r1)
       | Just handler <- binOpDef ^. #regToImmCodegen -> do
         handleImmediate handler i1 r1
+    (Spilled offset, Immediate (IntLiteral i1))
+      | Just handler <- binOpDef ^. #immToRegCodegen -> do
+        r1 <- forceToReg $ Spilled offset
+        handleImmediate handler i1 r1
+    (Immediate (IntLiteral i1), Spilled offset)
+      | Just handler <- binOpDef ^. #regToImmCodegen -> do
+        r1 <- forceToReg $ Spilled offset
+        handleImmediate handler i1 r1
     _ -> genericCodgen
   where
     genericCodgen = do

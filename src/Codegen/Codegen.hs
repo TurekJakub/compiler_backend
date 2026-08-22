@@ -43,7 +43,11 @@ codegenToken (IrLiteral lit) = #virtualStack %= (Immediate lit :)
 codegenToken (GetLocal varName) = do
   cachedReg <- use $ #cache % at (Var varName)
   case cachedReg of
-    Just c -> #virtualStack %= (c :)
+    Just c -> case c of 
+      Spilled _ -> do
+       reg <- forceToReg c
+       #virtualStack %= (Reg reg :)
+      _ -> #virtualStack %= (c :)
     Nothing -> do
       var <- use (#localVars % at varName)
       case var of
