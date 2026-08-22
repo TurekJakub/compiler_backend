@@ -8,7 +8,7 @@ module Asm.Riscv
 import Asm.Asm (AsmPrinter(..))
 import Codegen.Common (Register(regName))
 
-import Data.Text.Lazy.Builder (Builder, fromString)
+import Data.Text.Lazy.Builder (Builder, fromString, singleton)
 import Target.Riscv.Common (RiscVInst(..), Rv32Inst, Rv64Inst)
 
 instance AsmPrinter Rv32Inst where
@@ -39,19 +39,17 @@ instance AsmPrinter Rv64Inst where
 
 commonAsmEmitter :: RiscVInst a -> Builder
 commonAsmEmitter (RV_Lw rs1 rs2 imm) =
-  threeArgsInstHelper
+  twoArgsInstHelper
     "lw"
     (getRegName rs1)
-    (getImm imm)
-    ("(" <> getRegName rs2 <> ")")
+    ((getImm imm) <> "(" <> getRegName rs2 <> ")")
 commonAsmEmitter (RV_Li rd imm) =
   twoArgsInstHelper "li" (getRegName rd) (getImm imm)
 commonAsmEmitter (RV_Sw rs1 rs2 imm) =
-  threeArgsInstHelper
+  twoArgsInstHelper
     "sw"
     (getRegName rs1)
-    (getImm imm)
-    ("(" <> getRegName rs2 <> ")")
+    ((getImm imm) <> "(" <> getRegName rs2 <> ")")
 commonAsmEmitter (RV_Addi rd rs imm) =
   threeArgsInstHelper "addi" (getRegName rd) (getRegName rs) (getImm imm)
 commonAsmEmitter (RV_Add rd rs1 rs2) =
@@ -70,7 +68,7 @@ commonAsmEmitter (RV_Jal rd label) =
 commonAsmEmitter (RV_Call label) = oneArgInstHelper "call" (fromString label)
 commonAsmEmitter (RV_Beq rs1 rs2 label) =
   threeArgsInstHelper "beq" (getRegName rs1) (getRegName rs2) (fromString label)
-commonAsmEmitter (RV_Label label) = fromString label
+commonAsmEmitter (RV_Label label) = fromString label <> singleton ':'
 commonAsmEmitter (RV_Ret) = "ret"
 commonAsmEmitter _ = "Not implemented"
 
