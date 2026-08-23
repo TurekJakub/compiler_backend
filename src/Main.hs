@@ -9,8 +9,8 @@ import Ir
   ( FuncTypeSignature(FuncTypeSignature, argTypes, returnType)
   , FunctionDef(FunctionDef, body, prototype)
   , FunctionPrototype(FunctionPrototype, name, signature)
-  , IrToken(Add, Branch, ConditionalBranch, Eq, FunctionCall, GetLocal, Gte, IrLiteral,
-            Label, Mul, Not, Sub)
+  , IrToken(Add, Branch, ConditionalBranch, Eq, FunctionCall, GetLocal, GetLocalAddr,
+            Gte, IrLiteral, Label, Mul, Not, SetLocal, Store, Sub)
   , IrType(IntType, VoidType)
   , Literal(IntLiteral)
   , Program
@@ -26,10 +26,11 @@ testInput =
           FunctionPrototype
             { name = "main"
             , signature =
-                FuncTypeSignature {returnType = VoidType, argTypes = []}
+                FuncTypeSignature {returnType = IntType, argTypes = []}
             }
       , body =
-          [ IrLiteral $ IntLiteral 0
+          [ IrLiteral $ IntLiteral 42
+          , SetLocal "x"
           , IrLiteral $ IntLiteral 1
           , IrLiteral $ IntLiteral 2
           , IrLiteral $ IntLiteral 3
@@ -38,7 +39,9 @@ testInput =
           , IrLiteral $ IntLiteral 6
           , IrLiteral $ IntLiteral 7
           , IrLiteral $ IntLiteral 8
+          , GetLocalAddr "x"
           , FunctionCall "test"
+          , GetLocal "x"
           ]
       }
   , FunctionDef
@@ -47,7 +50,7 @@ testInput =
             { name = "test"
             , signature =
                 FuncTypeSignature
-                  { returnType = IntType
+                  { returnType = VoidType -- IntType
                   , argTypes =
                       [ IntType
                       , IntType
@@ -62,22 +65,27 @@ testInput =
                   }
             }
       , body =
-          [ GetLocal "arg8" {-
+          [ IrLiteral $ IntLiteral 84
+          , GetLocal "arg8"
+          , Store IntType 0
+          {-
+          ,  GetLocal "arg8"
           , IrLiteral (IntLiteral 42)
           , Add
           , IrLiteral (IntLiteral 7)
           , Sub
           , IrLiteral (IntLiteral 42)
-          , Mul-}
+          , Mul
           , IrLiteral $ IntLiteral 8
           , Eq
           , Not
           , ConditionalBranch "UwU"
-          , IrLiteral (IntLiteral 10)
+          , IrLiteral $ IntLiteral 10
           , Branch "OwO"
           , Label "UwU"
           , IrLiteral (IntLiteral 20)
           , Label "OwO"
+          -}
           ]
       }
   ]

@@ -20,6 +20,15 @@ type VarName = String
 data IrToken
   = GetLocal VarName
   | SetLocal VarName
+  | GetLocalAddr VarName
+  | Load
+      { dataType :: IrType
+      , offset :: Int
+      }
+  | Store
+      { dataType :: IrType
+      , offset :: Int
+      }
   | Drop
   | IrLiteral Literal
   | FunctionCall
@@ -50,7 +59,7 @@ data IrType
   | CharType
   | DoubleType
   | VoidType
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 
 data FuncTypeSignature = FuncTypeSignature
   { argTypes :: [IrType]

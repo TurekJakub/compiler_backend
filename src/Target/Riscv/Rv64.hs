@@ -53,6 +53,18 @@ instance InstSelector Rv64Inst where
        VStackItem -> String -> State (CodegenState Rv64Inst) ()
   codegenBranchIfZero = rvCodegenBranchIfZero
   loadImmediate :: Immediate -> Register -> State (CodegenState Rv64Inst) ()
+  codegenGetLocalAddr :: Int -> State (CodegenState Rv64Inst) VStackItem
+  codegenGetLocalAddr = rvCodegenGetLocalAddr
+  codegenLoad ::
+       IrType -> Int -> VStackItem -> State (CodegenState Rv64Inst) VStackItem
+  codegenLoad = rvCodegenLoad
+  codegenStore ::
+       IrType
+    -> Int
+    -> VStackItem
+    -> VStackItem
+    -> State (CodegenState Rv64Inst) ()
+  codegenStore = rvCodegenStore
   loadImmediate = rvLoadImmediate
   emitLoad :: Register -> Register -> Immediate -> Rv64Inst
   emitLoad target src offset = RV_Ld target src offset

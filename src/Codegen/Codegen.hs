@@ -18,7 +18,8 @@ import Ir
   , FunctionDef(body, prototype)
   , FunctionPrototype(name, signature)
   , IrToken(Add, Branch, ConditionalBranch, Div, Drop, Eq, FunctionCall, GetLocal,
-            Gt, Gte, IrLiteral, Label, Lt, Lte, Mod, Mul, Not, SetLocal, Sub)
+            GetLocalAddr, Gt, Gte, IrLiteral, Label, Load, Lt, Lte, Mod, Mul, Not,
+            SetLocal, Store, Sub)
   , IrType(VoidType)
   , LabelName
   , Literal(IntLiteral)
@@ -78,8 +79,35 @@ codegenToken (SetLocal varName) = do
             pure offset
       valueReg <- forceToReg value
       emit $ emitStore valueReg (spRegister @target) varOffset
-      #cache % at (Var varName) .= Just (Reg valueReg)
+      donNotCache <- use $ #notCachedLocals % contains varName
+      when (not donNotCache) $ #cache % at (Var varName) .= Just (Reg valueReg)
     _ -> error "Stack underflow in setLocal"
+codegenToken (GetLocalAddr varName) = do
+  localVar <- use (#localVars % at varName)
+  case localVar of
+    Just offset -> do
+      addr <- codegenGetLocalAddr offset
+      #notCachedLocals % contains varName .= True --We need to forbid caching of values to which someone takes ptr
+      #cache % at (Var varName) .= Nothing
+      #virtualStack %= (addr :)
+    Nothing ->
+      error $ "Tries to take address of undeclared local variable " ++ varName
+codegenToken (Load dataType offset) = do
+  vStack <- use #virtualStack
+  case vStack of
+    (addr:stackRest) -> do
+      loadedVal <- codegenLoad dataType offset addr
+      #virtualStack .= (loadedVal : stackRest)
+    _ -> error "Stack underflow: there is no base address on stack to emit load"
+codegenToken (Store dataType offset) = do
+  vStack <- use #virtualStack
+  case vStack of
+    (toStore:addr:stackRest) -> do
+      codegenStore dataType offset toStore addr
+      #virtualStack .= stackRest
+    _ ->
+      error
+        "Stack underflow: store operation requires base address and value to store on stack"
 codegenToken Add =
   let addDef =
         BinOpDef
@@ -357,10 +385,14 @@ computeFrameSize func knownFuncDefs =
         IrLiteral _ -> 1
         GetLocal _ -> 1
         SetLocal _ -> -1
+        GetLocalAddr _ -> 1
+        Load _ _ -> 0
+        Store _ _ -> -2
         Drop -> -1
         Add -> -1
         Sub -> -1
         Mul -> -1
+        Div -> -1
         Mod -> -1
         Lt -> -1
         Lte -> -1
@@ -368,7 +400,6 @@ computeFrameSize func knownFuncDefs =
         Gte -> -1
         Eq -> -1
         Not -> 0
-        Div -> -1
         Branch _ -> 0
         Label _ -> 0
         ConditionalBranch _ -> -1

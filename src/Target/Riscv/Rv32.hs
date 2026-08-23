@@ -50,6 +50,18 @@ instance InstSelector Rv32Inst where
   codegenBranchIfZero ::
        VStackItem -> String -> State (CodegenState Rv32Inst) ()
   codegenBranchIfZero = rvCodegenBranchIfZero
+  codegenGetLocalAddr :: Int -> State (CodegenState Rv32Inst) VStackItem
+  codegenGetLocalAddr = rvCodegenGetLocalAddr
+  codegenLoad ::
+       IrType -> Int -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
+  codegenLoad = rvCodegenLoad
+  codegenStore ::
+       IrType
+    -> Int
+    -> VStackItem
+    -> VStackItem
+    -> State (CodegenState Rv32Inst) ()
+  codegenStore = rvCodegenStore
   loadImmediate :: Immediate -> Register -> State (CodegenState Rv32Inst) ()
   loadImmediate = rvLoadImmediate
   emitLoad :: Register -> Register -> Immediate -> Rv32Inst

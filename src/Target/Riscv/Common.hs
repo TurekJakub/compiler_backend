@@ -17,14 +17,15 @@ import Target.Target (Arch(..), is12BitsImm)
 
 import Control.Monad.State
 import Data.Map (Map)
-
 import Optics
 import Optics.State.Operators ((.=))
 
+import Control.Monad (when)
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Target.Target
   ( InstSelector(..)
-  , RegisterAllocator(initialRegisterPool)
+  , RegisterAllocator(allocateRegister, initialRegisterPool)
   , emit
   )
 
@@ -148,6 +149,33 @@ flipBinOpDef def =
     , regToImmCodegen = immToRegCodegen def
     }
 
+foldAddressHelper ::
+     forall (a :: Arch).
+     (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
+  => VStackItem
+  -> Int
+  -> State (CodegenState (RiscVInst a)) (Register, Int, Bool)
+foldAddressHelper addr offset =
+  case addr of
+    (Immediate (IntLiteral addrImm)) -> do
+      let newOffset = offset + addrImm
+      if is12BitsImm newOffset
+        then return (rvZeroRegister, newOffset, False)
+        else do
+          foldedAddrReg <- forceImmediateToReg newOffset
+          return (foldedAddrReg, 0, True)
+    (Immediate _) -> error ""
+    _ -> do
+      addrReg <- forceToReg addr
+      if is12BitsImm offset
+        then return (addrReg, offset, False)
+        else do
+          offsetReg <- forceImmediateToReg offset
+          foldedAddrReg <- allocateRegister
+          emit $ RV_Add foldedAddrReg addrReg offsetReg
+          freeRegister offsetReg
+          return (foldedAddrReg, 0, True)
+
 rvInitCodegen ::
      forall target allocator. (InstSelector target, RegisterAllocator allocator)
   => Int
@@ -165,15 +193,16 @@ rvInitCodegen argsCount frameSize knowFuncDefs =
           | i <- [0 .. argsCount - 1]
           ]
    in CodegenState
-        { virtualStack = [] -- Do not push arguments to stack right away, they will be lazy-loaded from cache on demand   
+        { virtualStack = [] -- Do not push arguments to stack right away, they will be lazy-loaded from cache on demand - This is bad and needs a rework  
         , freeRegisters = (initialRegisterPool @allocator)
         , cache = initialCache
         , emittedCode = []
         , knowFuncDef = knowFuncDefs
-        , localVars = Map.empty
+        , localVars = Map.empty -- args need to be handled as full blown local. With current setup they get lost on first cache wipe, for example on any jump/control flow change
         , freeSpillOffsets = []
         , nextSpillOffset = 0
         , blockStackStates = Map.empty
+        , notCachedLocals = Set.empty
         }
 
 rvCodegenAdd ::
@@ -352,6 +381,58 @@ rvCodegenBranchIfZero precedent target =
       emit $ RV_Beq tmp rvZeroRegister target
       freeRegister tmp
     _ -> return () -- This should be handled by generic codegen pass
+
+rvCodegenGetLocalAddr ::
+     forall (a :: Arch).
+     (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
+  => Int
+  -> State (CodegenState (RiscVInst a)) VStackItem
+rvCodegenGetLocalAddr offset =
+  if is12BitsImm offset
+    then do
+      addrReg <- allocateRegister @(RiscVInst a)
+      emit $ RV_Addi addrReg (spRegister @(RiscVInst a)) offset
+      return $ Reg addrReg
+    else do
+      offsetReg <- forceImmediateToReg offset
+      addrReg <- allocateRegister
+      emit $ RV_Add addrReg (spRegister @(RiscVInst a)) offsetReg
+      freeRegister offsetReg
+      return $ Reg addrReg
+
+rvCodegenLoad ::
+     forall (a :: Arch).
+     (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
+  => IrType
+  -> Int
+  -> VStackItem
+  -> State (CodegenState (RiscVInst a)) VStackItem
+rvCodegenLoad dataType offset addr = do
+  (addReg, foldedOffset, isAddrTmp) <- foldAddressHelper addr offset
+  case dataType of
+    IntType -> do
+      loaded <- allocateRegister @(RiscVInst a)
+      emit $ emitLoad loaded addReg foldedOffset -- integers are of target architecture reg size => emit lw/ld for rv32/rv64
+      when isAddrTmp $ freeRegister @(RiscVInst a) addReg
+      return $ Reg loaded
+    _ -> error "Load of non integer values not implemented yet"
+
+rvCodegenStore ::
+     forall (a :: Arch).
+     (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
+  => IrType
+  -> Int
+  -> VStackItem
+  -> VStackItem
+  -> State (CodegenState (RiscVInst a)) ()
+rvCodegenStore dataType offset addr toStore = do
+  (addReg, foldedOffset, isAddrTmp) <- foldAddressHelper addr offset
+  toStoreReg <- forceToReg toStore
+  case dataType of
+    IntType -> do
+      emit $ emitStore toStoreReg addReg foldedOffset
+      when isAddrTmp $ freeRegister addReg
+    _ -> error "Store of non integer values not implemented yet"
 
 rvLoadImmediate ::
      forall (a :: Arch). InstSelector (RiscVInst a)

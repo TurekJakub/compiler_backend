@@ -133,6 +133,15 @@ class RegisterAllocator target =>
        VStackItem -> VStackItem -> State (CodegenState target) VStackItem
   codegenNot :: VStackItem -> State (CodegenState target) VStackItem
   codegenBranchIfZero :: VStackItem -> String -> State (CodegenState target) ()
+  codegenGetLocalAddr :: Int -> State (CodegenState target) VStackItem
+  codegenLoad ::
+       IrType -> Int -> VStackItem -> State (CodegenState target) VStackItem
+  codegenStore ::
+       IrType
+    -> Int
+    -> VStackItem
+    -> VStackItem
+    -> State (CodegenState target) ()
   emitLoad :: Register -> Register -> Immediate -> target
   emitStore :: Register -> Register -> Immediate -> target
   emitAddi :: Register -> Register -> Immediate -> target

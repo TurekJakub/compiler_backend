@@ -9,6 +9,7 @@ module Codegen.Common
 import Control.Monad.State
 import qualified Data.Map as Map
 import Data.Map (Map)
+import Data.Set (Set)
 import GHC.Generics (Generic)
 import Ir
 import Optics.State.Operators ((%=), (.=))
@@ -48,6 +49,7 @@ data CodegenState inst = CodegenState
   , freeSpillOffsets :: [HwStackOffset]
   , nextSpillOffset :: HwStackOffset
   , blockStackStates :: Map LabelName [VStackItem]
+  , notCachedLocals :: Set VarName
   } deriving (Show, Generic)
 
 invalidateCacheLine :: VStackItem -> State (CodegenState inst) ()
