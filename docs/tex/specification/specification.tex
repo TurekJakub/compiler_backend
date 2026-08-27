@@ -34,11 +34,12 @@ Projekt zaměřující se na implementaci jednoduché sady nástrojů pro genero
 \section*{Tabulka revizí}
 
 \begin{center}
-\begin{tabular}{llll}
+%\begin{tabular}{llll}
 % pokud potřebujete víc místa na popis změny:
-% \begin{tabular}{llp{0.4\linewidth}l}
+\begin{tabular}{llp{0.4\linewidth}l}
 \toprule
 Jméno & Datum & Důvod změny & Verze \\
+Jakub Turek & 27.8.2026 & Úprava specifikace po konzultaci: přidání RISC-V jako primární cílové platformy, integrace s frontendem přesunuta do BP & 1.1 \\
 %\midrule creates ugly doubled border when table is empty 
 %\xxx{Autor} & \xxx{Datum} & \xxx{Stručný popis změny} & \xxx{Verze} \\
 \bottomrule
@@ -52,13 +53,13 @@ Jméno & Datum & Důvod změny & Verze \\
 
 \subsection{Popis a zaměření softwarového díla}
 
-Software vzniklý v rámci projektu bude jednoduchý backend překladače doplněný o vzorovou implementaci jeho frontendu. Pro komunikaci mezi těmito dvěma vrstvami projektu pak bude definován vlastní mezikód (IR). Backend bude schopen pro vstup v podobě toho mezikódu vygenerovat ekvivalentní x86 assembly. Z vygenerovaného assembly bude následně pomocí externího assembleru a linkeru pro konkrétní platformu vygenerován spustitelný soubor. Za alternativu projektu je možné považovat LLVM, které nabízí vlastní IR a rozsáhlou na něj navázanou infrastrukturu pro tvorbu překladačů, primárně jejich backendů. Předchozí práce s LLVM při tvorbě vlastního překladače, pak byla i hlavní motivací pro vznik celého projektu. Kdy jsem chtěl tuto externí závislost na robustním, ale komplexním nástroji jako je LLVM nahradit vlastní alternativou. Z čehož později po konzultaci s vedoucím projektu vzešla myšlenka vytvořit zjednodušenou alternativu právě k LLVM, která by sloužila pro podobné projekty, pro než je LLVM příliš komplexním nástrojem, případně nedokážou plně využít všech jeho benefitů.
+Software vzniklý v rámci projektu bude jednoduchý backend překladače, doplněný o definici vlastního mezikódu (IR), který bude sloužit jako jeho vstup a interface pro komunikaci s frontendem. Backend bude schopen pro vstup v podobě tohoto mezikódu vygenerovat ekvivalentní RISC-V/x86 assembly (primární cílovou architekturou aktualního prototypu je RISC-V, podpora pro x86 bude přidána později pro demonstraci rozšiřitelnosti projektu). V tomto ohledu by měl být kladen důraz hlavně na snadnou rozšiřitelnost, tedy aby přidání nové cílové architektury vyžadovalo, co nejmenší zásah do již existujícího kódu. Z vygenerovaného assembly bude následně pomocí externího assembleru a linkeru pro konkrétní platformu vygenerován spustitelný soubor. Za alternativu projektu je možné považovat LLVM, které nabízí vlastní IR a rozsáhlou na něj navázanou infrastrukturu pro tvorbu překladačů, primárně jejich backendů. Předchozí práce s LLVM při tvorbě vlastního překladače, pak byla i hlavní motivací pro vznik celého projektu. Kdy jsem chtěl tuto externí závislost na robustním, ale komplexním nástroji jako je LLVM nahradit vlastní alternativou. Z čehož později po konzultaci s vedoucím projektu vzešla myšlenka vytvořit zjednodušenou alternativu právě k LLVM, která by sloužila pro podobné projekty, pro než je LLVM příliš komplexním nástrojem, případně nedokážou plně využít všech jeho benefitů.
 
 %\xxx{Popište krátce specifikovaný software. Krátce zdůvodněte, proč jste se rozhodli ho implementovat, uveďte, co přinese nového, na jakou cílovou skupinu je zaměřen. Pokud existují alternativy, uveďte je a zdůvodněte, v čem se vaše řešení bude odlišovat}
 
 \subsection{Použité technologie }
 
-Pro implementaci backendu bude využit programovací jazyk Haskell. Pro parsování textové reprezentace IR na vstupu pak bude využita Haskell knihovna \textit{Megaparsec} pro tvorbu monádických parserů. Frontend pak bude implementován buďto v jazyce OCaml (pokud by implementace byla realizována úpravou již existujícího \href{https://gitlab.mff.cuni.cz/turekja5/compiler_frontend}{projektu}), nebo opět Haskellu s využitím knihovny \textit{Megaparsec}. Dále bude projekt využívat externí assembler a linker, pro převod vygenerovaného assembly do podoby objektových/spustitelných souborů pro konkrétní platformu/operační systém. 
+Pro implementaci backendu bude využit programovací jazyk Haskell. Dále bude projekt využívat externí assembler a linker, pro převod vygenerovaného assembly do podoby objektových/spustitelných souborů pro konkrétní platformu/operační systém. 
 
 %\xxx{Uveďte seznam nejdůležitějších technologií (např. knihovny, hardware atd.), které budete v rámci projektu využívat}
 
@@ -77,29 +78,29 @@ Názvy externích závislostí a knihoven jsou v dokumentu zvýrazněny kurzívo
 
 \subsection{Důvod vzniku softwarového díla a jeho základní části a cíle řešení}
 
-Jak již bylo řečeno úvodem primárním impulzem ke vzniku projektu byla práce s LLVM v rámci jiného projektu. Následovaná snahou primárně ze studijních důvodu LLVM nahradit vlastní implementací. Tato snaha eventuálně vyústila v myšlenku implementovat jednoduchý nástroj, který by nabízel zakladní funkcionalitu LLVM a mohl by být použit jako jeho alternativa pro obdobné malé a výukové projekty, které většinou využívají jen zlomek z nabízených možností, ale zároveň jsou zatíženy vysokou komplexností celého systému. Podobně jako LLVM bude projekt založen na vlastní IR a nástroji, který na jejím základě vygeneruje odpovídající assembly pro cílovou architekturu (v tuto chvíli x86). Projekt pak bude možné využít jednak pro tvorbu zcela nových překladačů doplněním o frontend generující toto IR pro jazyk, pro nějž chce uživatel vytvořit překladač. Případně bude možné ho integrovat do již existujících projektů úpravou frontendu daného překladače a jím generovaného mezikódu, ať už jde o LLVM IR v případě projektů využívajících LLVM, nebo třeba kombinátory v jazyce C v případě MicroHs.
+Jak již bylo řečeno úvodem, primárním impulzem ke vzniku projektu byla práce s LLVM v rámci jiného projektu. Následovaná snahou primárně ze studijních důvodů LLVM nahradit vlastní implementací. Tato snaha eventuálně vyústila v myšlenku implementovat jednoduchý nástroj, který by nabízel zakladní funkcionalitu LLVM a mohl by být použit jako jeho alternativa pro obdobné malé a výukové projekty, které většinou využívají jen zlomek z nabízených možností, ale zároveň jsou zatíženy vysokou komplexností celého systému. Podobně jako LLVM bude projekt založen na vlastní IR a nástroji, který na jejím základě vygeneruje odpovídající assembly pro cílovou architekturu (v tuto chvíli RISC-V/x86). Projekt pak bude možné využít jednak pro tvorbu zcela nových překladačů doplněním o frontend generující toto IR pro jazyk, pro nějž chce uživatel vytvořit překladač. Případně bude možné ho integrovat do již existujících projektů úpravou frontendu daného překladače a jím generovaného mezikódu, ať už jde o LLVM IR v případě projektů využívajících LLVM, nebo třeba kombinátory v jazyce C v případě MicroHs.
 
 %\xxx{Popište, proč má softwarové dílo vzniknout. Uveďte, zda se má jednat o samostatný produkt, rozšíření funkcionality, náhradu existujícího produktu nebo něco jiného. Pokud se jedná o součást většího systému, popište požadavky na tento systém, popřípadě požadavky na jeho začlenění do tohoto systému, popište rozhraní, které bude pro začlenění využito. Pokud bude systém složen z několika částí či vrstev, nakreslete jednoduchý diagram a popište funkce jednotlivých částí.}
 
 \subsection{Hlavní funkce}
 
-Software vyvinutý v rámci projektu by měl sloužit jako nástroj pro generování strojového kódu. Samotný kód bude generován na základě vstupu v podobě souboru s textovou reprezentací IR. V tuto chvíli bude nástroj schopen generovat pouze instrukce pro platformu x86, ale jeho design bude umožňovat pozdější odvození verzí pro další platformy. Kromě samotného generatoru kódu bude v rámci projektu vytvořen také jednoduchý frontend překladače, který bude generovat požadované IR. A dohromady tak budou tvořit překladač daného jazyka pro architekturu x86. Hlavním cílem je tedy vytvořit code generation nástroj, který bude možné využít jako překladačový backend dalšími projekty, a zároveň demonstrovat toto využití dodáním jednoduchého překladačového frontendu.
+Software vyvinutý v rámci projektu by měl sloužit jako nástroj pro generování strojového kódu. Samotný kód bude generován na základě vstupu v podobě souboru s textovou reprezentací IR. V tuto chvíli bude nástroj schopen generovat instrukce pro platformu RISC-V, případně x86, ale jeho design bude umožňovat pozdější odvození verzí pro další platformy. A při doplnění o vhodný frontend tak bude tvořit překladač daného jazyka pro architekturu RISC-V/x86. Hlavním cílem je tedy vytvořit code generation nástroj, který bude možné využít jako překladačový backend dalšími projekty.
 %xxx{Popište hlavní funkce díla. Nezacházejte do detailů, jednotlivé detaily funkcionality budou popsány v následujících sekcích, zde postačí pouze stručný ``high-level'' přehled.}
 
 \subsection{Motivační příklad užití}
 
-Typyckým užitím výsledného softwaru je tvorba jednoduchého překladače nějakého programovacího jazyka pro architekturu x86. Pro takovéto využití je třeba projekt doplnit o překladačový frontend daného jazyka generující projektem definovanou IR. Příklad tvorby kompletního překladače s vytvořeným nástrojem bude demonstrován i jako jeden z výstupů projektu. 
+Typickým užitím výsledného softwaru je tvorba jednoduchého překladače nějakého programovacího jazyka pro backendem podporované architektury. Pro takovéto využití je třeba projekt doplnit o překladačový frontend daného jazyka generující projektem definovanou IR. 
 
 %\xxx{Pokud to je možné, uveďte (bez technických detailů) demonstrativní příklad užití, který bude dokladovat typické funkce díla.}
 
 \subsection{Prostředí aplikace}
 
-Podporovaným prostředím pro využití nástroje budou zařízení s architekturou x86 a operačním systémem Linux, případně Windows. Jako externí závislosti bude pro své fungování program vyžadovat nástroje \textit{NASM} a \textit{ld} v případě Linuxového prostředí, případně \textit{NASM} a \textit{Link.exe} v případě Windows. Dále pak bude vyžadována Haskell knihovna \textit{Megaparsec}.  
+Podporovaným prostředím pro využití nástroje budou zařízení s architekturou RISC-V/x86 a operačním systémem Linux, případně Windows (v případě x86 architektury, protože v případě RISC-V aktuálně neexistuje oficiální podpora ze strany Windows). Jako externí závislosti bude pro své fungování program vyžadovat nástroje \textit{as} a \textit{ld}. 
 %\xxx{Popište prostředí, ve kterém bude aplikace běžet. To může být například požadovaný hardware, operační systém, vyžadované knihovny a balíčky, jejich verze apod.}
 
 \subsection{Omezení díla}
 
-Výsledný software by neměl být předmětem zásadních omezení v podobě systémových, či licenčních podmínek. Hlavním omezením je v tomto ohledu rozhodnutí delegovat generování objektových souborů a jejich linkování na externí nástroje v podobě \textit{NASM} a \textit{ld}. Což má za následek nejen závislost projektu na těchto externích nástrojích, ale také nutnost využívat s nimi kompatibilní zápis x86 assembly, nebo nutnost \textit{NASM} nahradit zcela jiným assemblerem v případě rozšiřování projektu o podporu dalších architektur.
+Výsledný software by neměl být předmětem zásadních omezení v podobě systémových, či licenčních podmínek. Hlavním omezením je v tomto ohledu rozhodnutí delegovat generování objektových souborů a jejich linkování na externí nástroje v podobě \textit{as} a \textit{ld}. Což má za následek nejen závislost projektu na těchto externích nástrojích, ale také nutnost využívat s nimi kompatibilní zápis RISC-V/x86 assembly, nebo nutnost \textit{as} nahradit zcela jiným assemblerem v případě rozšiřování projektu o jím nepodporované architektury.
 
 Méně významným omezení je pak omezení na konkrétní překladačové frontendy, které by měly být s projektem integrovány. Aby tato integrace byla možná, musí konkrétní frontend splnit požadované komunikační rozhraní. Tedy jeho výstupem musí být textová reprezentace IR definované v rámci projektu.
 
@@ -107,7 +108,7 @@ Méně významným omezení je pak omezení na konkrétní překladačové front
 
 \subsection{Dokumentace díla}
 
-Jelikož je projekt koncipován jako jednoduchý code generation nástroj, tak bude třeba kromě běžné uživatelské a vývojové dokumentace dodat také specifikaci používané IR. Tato specifikace by zřejmě mohla být součástí běžné uživatelské dokumentace. Zároveň se ale jedná o rozsáhlejší standard definovaný v rámci projektu, jehož znalost je sice nutná pro plnohodnotné využití při vývoji vlastního překladače, nikoliv však pro samotné užitní nástroje k vygenerování kódu z již existujících souborů s IR. Pročež se jeví lepším specifikaci tohoto standardu vyjmout do separátního dokumentu. Tento dokument by pak měl společně s uživatelskou dokumentací a vzorovým frontendem překladače dodaným v rámci projektu poskytovat dostatek informací nutných pro využití tohoto projektu k tvorbě vlastního překladače.
+Jelikož je projekt koncipován jako jednoduchý code generation nástroj, tak bude třeba kromě běžné uživatelské a vývojové dokumentace dodat také specifikaci používané IR. Tato specifikace by zřejmě mohla být součástí běžné uživatelské dokumentace. Zároveň se ale jedná o rozsáhlejší standard definovaný v rámci projektu, jehož znalost je sice nutná pro plnohodnotné využití při vývoji vlastního překladače, nikoliv však pro samotné užitní nástroje k vygenerování kódu z již existujících souborů s IR. Pročež se jeví lepším specifikaci tohoto standardu vyjmout do separátního dokumentu. Tento dokument by pak měl společně s uživatelskou dokumentací poskytovat dostatek informací nutných pro využití tohoto projektu k tvorbě vlastního překladače.
 
 %\xxx{Pokud plánujete, že k práci bude potřeba vytvořit více než běžnou uživatelskou (popisující instalaci a používání programu) a vývojovou dokumentaci, tak pro detailnější popis požadavků použijte tuto sekci. Typický příklad je např. tvorba aplikace rozšiřitelné pomocí plug-inů --- zde je minimálně třeba vývojová dokumentace k samotnému programu, uživatelská dokumentace popisující instalaci a použití aplikace a případných plug-inů a navíc uživatelská dokumentace pro programátory nových plug-inů, možná i nějaké tutoriály, jak vytvořit nový plug-in, apod.}
 
@@ -123,13 +124,13 @@ Interakce s uživatelem bude probíhat prostřednictvím běžného CLI. Program
         \item Specifikace knihoven k linkování
     \end{itemize}
 
-Vstupem programu pak bude soubor obsahující textovou reprezentaci v rámci projektu definované IR. Na základě tohoto vstupu a příslušných přepínaču bude programem vygenerován výstupní soubor v podobě spustitelného souboru programu definovaného vstupním IR, textového souboru obsahující vygenerované assembly, objektového souboru k nalinkování.  
+Vstupem programu pak bude soubor obsahující textovou reprezentaci v rámci projektu definované IR. Na základě tohoto vstupu a příslušných přepínačů bude programem vygenerován výstupní soubor v podobě spustitelného souboru programu definovaného vstupním IR, textového souboru obsahující vygenerované assembly, objektového souboru k nalinkování.  
 
 %\xxx{Popište základní principy interakce mezi uživatelem a programem. Dále v této části popište vstupy a výstupy programu.}
 
 \subsection{Rozhraní s hardware}
 
-Projekt nevyužívá žadný specifický hardware. Zaměřuje se však na generování kódu pro architekturu x86. Projekt tedy v tuto chvíli podporuje pouze zařízení s touto architekturou procesoru, respektive jeho výstupy v podobě spustitelných souborů, či assembly (využívajícího Intel syntaxi) jsou určeny pro tuto platformu.
+Projekt nevyužívá žadný specifický hardware. Zaměřuje se však na generování kódu pro architekturu RISC-V/x86. Projekt tedy v tuto chvíli podporuje pouze zařízení s touto architekturou procesoru, respektive jeho výstupy v podobě spustitelných souborů, či assembly (využívajícího GNU sytaxi v případě x86 assembly) jsou určeny pro tuto platformu.
 %\xxx{Popište interface díla s hardware, pokud nějaký specificky využívá. Tato část může obsahovat výčet podporovaného hardware, ovladačů, komunikačních protokolů atd.}
 
 \subsection{Rozhraní se software}
@@ -138,7 +139,7 @@ Projekt je koncipován jako jednoduchý backend překladače, z čehož plyne nu
 
 Druhým softwarovým rozhraní je rozhraní mezi backendem a assemblerem, který z vygenerovaného assembleru vytvoří objektový soubor ve formátu pro cílový operační systém. Výměna dat na tomto rozhraní bude opět probíhat prostřednictvím dočasného textového souboru, kdy backend opět uloží x86 assembly vygenerované pro vstupní IR do výstupního souboru a následně zavolá externí assembler, kterému předá tento soubor jako vstup.
 
-Posledním softwarovým rozhraním projektu je rozhraní mezi backendem a linkerem, kde opět dojde k výměně dat prostřednictvím souborů. Backend jednoduše spustí externí linker s cestami k souborů, jenž je třeba nalinkovat (objektový soubor vygenerovaný assemblerem a případné knihovny specifikované uživatelem na vstupu), a linker následně zapíše výsledný nalinkovaný spustitelný soubor do backendem specifikovaného výstupního souboru. Toto rozhraní by projekt z koncepčního hlediska pravděpodobně nemusel obsahovat a výstupem backendu by mohl být pouze nenalinkovaný objektový soubor. Avšak z uživatelského hlediska je pravděpodobně přívětivější doplnit backend o schopnost zavolat externí linker a vygenerovaný objektový soubor také nalinkovat.
+Posledním softwarovým rozhraním projektu je rozhraní mezi backendem a linkerem, kde opět dojde k výměně dat prostřednictvím souborů. Backend jednoduše spustí externí linker s cestami k souborům, jenž je třeba nalinkovat (objektový soubor vygenerovaný assemblerem a případné knihovny specifikované uživatelem na vstupu), a linker následně zapíše výsledný nalinkovaný spustitelný soubor do backendem specifikovaného výstupního souboru. Toto rozhraní by projekt z koncepčního hlediska pravděpodobně nemusel obsahovat a výstupem backendu by mohl být pouze nenalinkovaný objektový soubor. Avšak z uživatelského hlediska je pravděpodobně přívětivější doplnit backend o schopnost zavolat externí linker a vygenerovaný objektový soubor také nalinkovat.
 
 %\xxx{Popište interakci díla s ostatními částmi logiky aplikace včetně jejich verze. Tato část může obsahovat popis interakce s databází, operačním systémem, knihovnami nebo jinými částmi software. Popište, jaká data se budou předávat a jejich význam. Uveďte, která data budou sdílena jednotlivými částmi, popřípadě jakým způsobem bude sdílení implementováno.}
 
@@ -154,7 +155,7 @@ Posledním softwarovým rozhraním projektu je rozhraní mezi backendem a linker
 
 \subsection{Mezikód a jeho parsování}
 
-V rámci projektu bude definován vlastní mezikód (IR), který bude sloužit jako vstup samotného nástroje. Cílem projektu je vyzkoušet různé alternativní způsoby reprezentace k reprezentaci využívané v rámci projektu LLVM. Definovaný mezikód bude pravděpodobně do jisté míry vycházet Three-address code formátu. 
+V rámci projektu bude definován vlastní mezikód (IR), který bude sloužit jako vstup samotného nástroje. Cílem projektu je vyzkoušet různé alternativní způsoby reprezentace k reprezentaci využívané v rámci projektu LLVM. Aktuálně projekt jako vstupní IR využíva jednoduchou stack based IR inspirovanou programovacím jazykem Forth a WebAssembly.
 
 Jednou z uvažovaných možností reprezentace je reprezentovat celý překládaný kód pomocí bloků instrukcí a control flow v kódu pak modelovat přímo jako operace nad instruction pointer registrem (tedy jako inkrementaci/dekrementaci instruction counteru o velikost příslušných bloků instrukcí). Takovýto přístup by měl negativní dopad na provádění řady optimalizací používaných právě LLVM a dalšími běžnými překladači, ale mohl by potenciálně zejednodušit IR a reprezentaci control flow v jejím rámci.
 
@@ -164,16 +165,16 @@ Aby bylo možné s kódem zapsaným pomocí takto definované reprezentace dále
 
 \subsection{Code generation a optimalizace}
 
-Klíčovou funkcí je pak samotné generování x86 instrukcí na základě vstupního mezikódu. Nástroj v rámci tohoto kroku provede standardní úkony v podobě výběru instrukcí, jejich plánování a alokace registrů. Výstupem tohoto kroku pak nebude přímo objektový soubor, ale jak již bylo řečeno, x86 assembly využívající Intel syntaxi a pro jeho převod do podoby objektového souboru bude využito externích nástrojů.
+Klíčovou funkcí je pak samotné generování RISC-V/x86 instrukcí na základě vstupního mezikódu. Nástroj v rámci tohoto kroku provede standardní úkony v podobě výběru instrukcí, jejich plánování a alokace registrů. Výstupem tohoto kroku pak nebude přímo objektový soubor, ale jak již bylo řečeno, RISC-V/x86 assembly a pro jeho převod do podoby objektového souboru bude využito externích nástrojů.
 
-Překladač by v rámci tohoto kroku měl provést také základní optimalizace jako je constant folding and propagation, dead code elimination, common subexpression elimination a podbně, které nejsou závislé přímo na cílové platformě. Tyto optimalizace by pak z důvodu usnadnění derivace variant pro jiné architektury než je x86 měli být implementovány na úrovni mezikódu ještě před samotným code generation tak, aby jejich implementace zůstala nezávislá na konkrétní architektuře. 
+Překladač by v rámci tohoto kroku měl provést také základní optimalizace jako je constant folding and propagation, dead code elimination, common subexpression elimination a podbně, které nejsou závislé přímo na cílové platformě. Tyto optimalizace by pak z důvodu usnadnění derivace variant pro jiné architektury měly být implementovány na úrovni mezikódu ještě před samotným code generation tak, aby jejich implementace zůstala nezávislá na konkrétní architektuře. 
 
 \subsection{Překladačový frontend}
-
+\iffalse
 Posledním z větších problémů k vyřešení v rámci projektu je tvorba jednoduchého frontendu překladače, s jehož pomocí by bylo možné demonstrovat funkčnost projektu a jeho využití k tvorbě jednoduchého plnohodnotného překladače pro konkrétní jazyk.
 
 V rámci této části bych chtěl integraci s frontendem demonstrovat na svém \href{https://gitlab.mff.cuni.cz/turekja5/compiler_frontend}{starším projektu} jednoduchého frontendu pro vlastní toy language napsaném v jazyce OCaml, který v současné chvíli využívá jako backend právě LLVM. Modifikace tohoto projektu tak, aby namísto LLVM IR generoval IR definovanou tímto projektem, by mohla být dobrou ukázkou jak vyvíjený nástroj integrovat do již existujícího projektu, která by vzhledem k povaze modifikovaného frontendu byla i dostatečně jednoduchá. Případně by bylo možné modifikovat již zmíněný překladač jazyka Haskell MicroHs, tak aby tento projekt využíval jako backend namísto dosavadního řešení s využitím kombinátorů v jazyce C. 
-
+\fi
 \section{Ostatní (mimofunkční) požadavky}
 
 \iffalse  # This is probably not relevant for compiler
@@ -194,18 +195,18 @@ V rámci této části bych chtěl integraci s frontendem demonstrovat na svém 
 
 Projekt je koncipován jako nástroj, který bude možné využít jako překladačový backend při tvorbě jednoduchého překladače (doplněním o frontend pro požadovaný jazyk). Z tohoto důvodu je tedy možnost snadné integrace projektu do již existujících/vznikajících projektů jednou z klíčových vlastností. Za tímto účelem projekt definuje vlastní IR standard, který takovouto integraci umožňuje. Pro integraci s projektem pak stačí, aby byl frontend, s nímž chceme integraci provést, upraven tak, aby namísto doposud produkovaného výstupu generoval textovou reprezentaci IR definovanou tímto standardem, kterou pak již lze přímo předat jako vstup tomuto projektu.
 
-Ze stejných důvodů hraje důležitou roli i rozšiřitelnost projektu. Bylo by vhodné, aby bylo do budoucna možné projekt rozšířit o další cílové architektury jako například AArch64, nebo RISC-V. Takovýto požadavek na rozširitelnost je však mnohem komplikovaněji splnitelný, protože ze samotné podstaty problému musí být problém generování kódu (alokace registrů, výběr instrukcí) závislý na cílové architektuře. Nejlepším možným řešením pro dosažení co nejsnazší rozšiřitelnosti je tedy přesunout co možná nejvíce optimalizací do doby před samotným code generation a aplikovat je ještě na úrovni samotné IR (což ale není vždy možné). Rozšíření o novou podporovanou architekturu pak bude vyžadovat naimplementovat pouze code generation a pro architekturu specifické optimalizace bez nutnosti úpravy částí pracujících nad IR. Dalším problémem je v tomto případě závislost na externím assembleru pro generování objektových souborů, který je v takovémto případě třeba nahradit alternativou pro danou architekturu (zde by bylo výhodnější využití \textit{GNU assembleru}, který na rozdíl od \textit{NASM} podporuje více architektur, ale zase není možné ho nativně využít na Windows).
+Ze stejných důvodů hraje důležitou roli i rozšiřitelnost projektu. Bylo by vhodné, aby bylo do budoucna možné projekt rozšířit o další cílové architektury jako například AArch64. Takovýto požadavek na rozšiřitelnost je však mnohem komplikovaněji splnitelný, protože ze samotné podstaty problému musí být problém generování kódu (alokace registrů, výběr instrukcí) do nějaké míry závislý na cílové architektuře. Nejlepším možným řešením pro dosažení co nejsnazší rozšiřitelnosti je tedy přesunout co možná nejvíce optimalizací do doby před samotným code generation a aplikovat je ještě na úrovni samotné IR (což ale není vždy možné) a také cílové platformy a generování kódu pro ně vhodně abstrahovat, tak aby jednotlivé implementace mohly sdílet co největší množství existující infrastruktury. Rozšíření o novou podporovanou architekturu pak bude vyžadovat znovu naimplementovat pouze určité pro platformu specifické části code generation bez nutnosti úpravy částí pracujících nad IR. Dalším problémem je v tomto případě závislost na externím assembleru pro generování objektových souborů, který je v takovémto případě třeba nahradit alternativou podporující danou architekturu.
 %\xxx{Uveďte požadavky na budoucí rozšiřitelnost díla, popřípadě jeho začleňování do existujících projektů.}
 
 \section{Ostatní požadavky}
 
-Jak již bylo zmíněno výše, jedním z hlavních požadavků na projekt je jeho integrovatelnost s různými překladačovými frontendy. Z tohoto důvodu je požadavkem, aby v rámci projektu nevznikl pouze jednoduchý code generation nástroj podporující základní optimalizace, ale také frontend, který by tuto možnost integrace a reálnou použitelnost projektu demonstroval.
+Jak již bylo zmíněno výše, jedním z hlavních požadavků na projekt je jeho rozšiřitelnost, ať už jde o integraci s ruznými frontendy, nebo implementace dalších cílových platforem. V tomto ohledu je tedy třeba dbát na modularní návrh kódu s vhodným rozhraním jednotlivých modulů, tak aby přidání nové cílové platformy v ideálním případě znamenalo pouze přidání nového modulu, který implementuje a poskytuje pro danou platformu specifické funkce. Integrace s frontendem by pak měla znamenat pouze převedení interní reprezentace překladaného kódu do textového zápisu pomocí vstupní stack based IR.
 
 %\xxx{Specifikujte ostatní požadavky na dílo.}
 
 \section{Negativní vymezení}
 
-Zaměřením projektu je čistě generování kódu, tedy vygenerovat x86 assembly odpovídající vstupnímu programu zapsanému pomocí IR. Projekt se tak nezabývá jednotlivými formáty objektových soubor ani jejich generování. Stejným způsobem se projekt nezaměřuje ani na linkováním objektových souboru do podoby spustitelných souborů a formáty těchto souborů používanými jednotlivými operačními systémy. Při řešení těchto podproblémů projekt spoléhá čistě na externí nástroje \textit{NASM} a \textit{ld/Link.exe}.
+Zaměřením projektu je čistě generování kódu, tedy vygenerovat RISC-V/x86 assembly odpovídající vstupnímu programu zapsanému pomocí IR. Projekt se tak nezabývá jednotlivými formáty objektových soubor ani jejich generováním. Stejným způsobem se projekt nezaměřuje ani na linkováním objektových souboru do podoby spustitelných souborů a formáty těchto souborů používanými jednotlivými operačními systémy. Při řešení těchto podproblémů projekt spoléhá čistě na externí nástroje \textit{as} a \textit{ld}.
 %\xxx{Uveďte, co není součástí tohoto díla a mohlo by to být implicitně předpokládáno.}
 
 \section{Time-line \& Milestones}
@@ -219,10 +220,9 @@ Zaměřením projektu je čistě generování kódu, tedy vygenerovat x86 assemb
 \toprule
 Datum & Milník & Způsob prezentace \\
 \midrule
-30.6.2026 & Definování podoby IR a její parsování & Commit/konzultace s vedoucím \\
+30.6.2026 & Definování podoby IR & Commit/konzultace s vedoucím \\
 31.7.2026 & Základní code generation & Commit/konzultace s vedoucím \\
 20.8.2026 & Kompletní code generation s optimalizacemi & Commit/konzultace s vedoucím \\
-15.9.2026 & Frontend a jeho integrace s code generation & Commit/konzultace s vedoucím \\
 \bottomrule
 \end{tabular}
 \end{center}
