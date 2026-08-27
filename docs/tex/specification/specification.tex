@@ -39,7 +39,10 @@ Projekt zaměřující se na implementaci jednoduché sady nástrojů pro genero
 \begin{tabular}{llp{0.4\linewidth}l}
 \toprule
 Jméno & Datum & Důvod změny & Verze \\
+\midrule
 Jakub Turek & 27.8.2026 & Úprava specifikace po konzultaci: přidání RISC-V jako primární cílové platformy, integrace s frontendem přesunuta do BP & 1.1 \\
+\midrule
+Jakub Turek & 27.8.2026 & Přidání shrnutí současného stavu implementace & 1.2 \\
 %\midrule creates ugly doubled border when table is empty 
 %\xxx{Autor} & \xxx{Datum} & \xxx{Stručný popis změny} & \xxx{Verze} \\
 \bottomrule
@@ -72,7 +75,7 @@ Pro implementaci backendu bude využit programovací jazyk Haskell. Dále bude p
 \subsection{Konvence tohoto dokumentu}
 
 %\xxx{Pokud plánujete používat typografické nebo jiné konvence při psaní této specifikace, popište je zde.}
-Názvy externích závislostí a knihoven jsou v dokumentu zvýrazněny kurzívou.
+Názvy externích závislostí a knihoven jsou v dokumentu zvýrazněny kurzívou. V kapitole shrnující současný stav implementace jsou pak kurzívou zvýrazněny také názvy typových tříd deklarovaných v rámci implementace. Tučně jsou pak zvýrazněny názvy jednotlivých IR instrukcí.
 
 \section{Stručný popis softwarového díla}
 
@@ -155,7 +158,7 @@ Posledním softwarovým rozhraním projektu je rozhraní mezi backendem a linker
 
 \subsection{Mezikód a jeho parsování}
 
-V rámci projektu bude definován vlastní mezikód (IR), který bude sloužit jako vstup samotného nástroje. Cílem projektu je vyzkoušet různé alternativní způsoby reprezentace k reprezentaci využívané v rámci projektu LLVM. Aktuálně projekt jako vstupní IR využíva jednoduchou stack based IR inspirovanou programovacím jazykem Forth a WebAssembly.
+V rámci projektu bude definován vlastní mezikód (IR), který bude sloužit jako vstup samotného nástroje. Cílem projektu je vyzkoušet různé alternativní způsoby reprezentace k reprezentaci využívané v rámci projektu LLVM. Aktuálně projekt jako vstupní IR využíva jednoduchou stack-based IR inspirovanou programovacím jazykem Forth a WebAssembly.
 
 Jednou z uvažovaných možností reprezentace je reprezentovat celý překládaný kód pomocí bloků instrukcí a control flow v kódu pak modelovat přímo jako operace nad instruction pointer registrem (tedy jako inkrementaci/dekrementaci instruction counteru o velikost příslušných bloků instrukcí). Takovýto přístup by měl negativní dopad na provádění řady optimalizací používaných právě LLVM a dalšími běžnými překladači, ale mohl by potenciálně zejednodušit IR a reprezentaci control flow v jejím rámci.
 
@@ -169,8 +172,8 @@ Klíčovou funkcí je pak samotné generování RISC-V/x86 instrukcí na základ
 
 Překladač by v rámci tohoto kroku měl provést také základní optimalizace jako je constant folding and propagation, dead code elimination, common subexpression elimination a podbně, které nejsou závislé přímo na cílové platformě. Tyto optimalizace by pak z důvodu usnadnění derivace variant pro jiné architektury měly být implementovány na úrovni mezikódu ještě před samotným code generation tak, aby jejich implementace zůstala nezávislá na konkrétní architektuře. 
 
-\subsection{Překladačový frontend}
 \iffalse
+\subsection{Překladačový frontend}
 Posledním z větších problémů k vyřešení v rámci projektu je tvorba jednoduchého frontendu překladače, s jehož pomocí by bylo možné demonstrovat funkčnost projektu a jeho využití k tvorbě jednoduchého plnohodnotného překladače pro konkrétní jazyk.
 
 V rámci této části bych chtěl integraci s frontendem demonstrovat na svém \href{https://gitlab.mff.cuni.cz/turekja5/compiler_frontend}{starším projektu} jednoduchého frontendu pro vlastní toy language napsaném v jazyce OCaml, který v současné chvíli využívá jako backend právě LLVM. Modifikace tohoto projektu tak, aby namísto LLVM IR generoval IR definovanou tímto projektem, by mohla být dobrou ukázkou jak vyvíjený nástroj integrovat do již existujícího projektu, která by vzhledem k povaze modifikovaného frontendu byla i dostatečně jednoduchá. Případně by bylo možné modifikovat již zmíněný překladač jazyka Haskell MicroHs, tak aby tento projekt využíval jako backend namísto dosavadního řešení s využitím kombinátorů v jazyce C. 
@@ -200,7 +203,7 @@ Ze stejných důvodů hraje důležitou roli i rozšiřitelnost projektu. Bylo b
 
 \section{Ostatní požadavky}
 
-Jak již bylo zmíněno výše, jedním z hlavních požadavků na projekt je jeho rozšiřitelnost, ať už jde o integraci s ruznými frontendy, nebo implementace dalších cílových platforem. V tomto ohledu je tedy třeba dbát na modularní návrh kódu s vhodným rozhraním jednotlivých modulů, tak aby přidání nové cílové platformy v ideálním případě znamenalo pouze přidání nového modulu, který implementuje a poskytuje pro danou platformu specifické funkce. Integrace s frontendem by pak měla znamenat pouze převedení interní reprezentace překladaného kódu do textového zápisu pomocí vstupní stack based IR.
+Jak již bylo zmíněno výše, jedním z hlavních požadavků na projekt je jeho rozšiřitelnost, ať už jde o integraci s ruznými frontendy, nebo implementace dalších cílových platforem. V tomto ohledu je tedy třeba dbát na modularní návrh kódu s vhodným rozhraním jednotlivých modulů, tak aby přidání nové cílové platformy v ideálním případě znamenalo pouze přidání nového modulu, který implementuje a poskytuje pro danou platformu specifické funkce. Integrace s frontendem by pak měla znamenat pouze převedení interní reprezentace překladaného kódu do textového zápisu pomocí vstupní stack-based IR.
 
 %\xxx{Specifikujte ostatní požadavky na dílo.}
 
@@ -226,6 +229,56 @@ Datum & Milník & Způsob prezentace \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+\clearpage
+\section{Completion}
+
+Projekt aktuálně implementuje jednoduchý jednoprůchodový code generation pro RISC-V na základě vstupu reprezentujícího vstupní program prostřednictvím stack-based mezikódu. Architektura RISC-V je podporována jak v 64-bitové, tak v 32-bitové verzi (RV64 a RV32) jako základní ukázka mechanismu, kterým bude v budoucnu možné přidat podporu pro další architektury (jako je právě zmíněná x86). Z hlediska podporovaných funkcí code generation aktuálně podporuje pouze celočíselné proměnné a ukazatele, které jsou taktéž reprezentovány jako celé číslo šířky odpovídající velikosti adres cílové platformy. S proměnnými je možné provádět základní aritmetické a logické operace (sčítání, odčítání, násobení, dělení, modulo, porovnání,...). Proměnné typu pointer je pak možné použít k přímé práci s pamětí (load/store), zároveň je možné získat adresu existujících proměnných. Dále je podporováno deklarování a volání funkcí, tedy je implementována většina volací konvence pro RISC-V (s výjimkou ukládání stavu caller-saved registrů). Dále je pak připravována podpora pro globální proměnné a statická data, spolu s přidáním FFI.
+
+\subsection{IR}
+
+Vstupem samotného code generation kroku je překládaný program zapsaný pomocí projektem definované IR. Prozatím projekt neobsahuje parser textové reprezentace IR, takže je nutné generátoru vstup předávat programaticky z prostředí Haskellu pomocí struktur reprezentujících jednotlivé IR tokeny. Samotná IR je inspirována primárně programovacím jazykem Forth a WebAssembly a jedná se tedy o stack-based reprezentaci. Následující seznam stručně popisuje aktuálně podporované IR tokeny/instrukce.
+
+\paragraph{Podporované IR instrukce}
+\begin{itemize} 
+    \item \textbf{IrLiteral} - pushne daný literál na stack
+    \item \textbf{Literal} literal\_value - vytvoří typovaný literál - aktuálně je podporován pouze typ int, brzy doplněný o string literál 
+    \item \textbf{Drop} - popne jeden prvek ze zásobníku (a zahodí ho)
+    \item \textbf{Branch} target - provede skok na label specifikovaný pomocí target
+    \item \textbf{ConditionalBranch} target - popne hodnotu ze zásobníku a pokud je rovna nule, pak provede skok na label specifikovaný pomocí target
+    \item \textbf{Label} name - vytvoří label označující začátek nového bloku, na nějž je možné skočit pomocí \textbf{Branch}/\textbf{ConditionalBranch}
+    \item \textbf{GetLocal} var\_name - získá aktuální hodnotu lokální proměnné s daným názvem a pushne ji na zásobník
+    \item \textbf{SetLocal} var\_name - popne hodnotu ze zásobníku a nastaví ji jako hodnotu dané proměnné
+    \item \textbf{GetLocalAddr} var\_name - získá adresu/ukazatel na danou proměnnou a pushne ji na zásobník
+    \item \textbf{Load} type offset - popne hodnotu ze zásobníku a použije ji jako základní adresu, z níž s daným offsetem načte hodnotu specifikovaného typu (offset se hodí pro práci se strukturami/poli) a pushne ji na zásobník
+    \item \textbf{Store} type offset - popne ze zásobníku základní adresu a hodnotu, tuto hodnotu následně uloží na stanovený offset od základní adresy
+    \item \textbf{FunctionCall} func\_name - popne ze zásobníku $n$ hodnot (kde $n$ je počet argumentů volané funkce) a zavolá specifikovanou funkci, které je předá jako argumenty (pořadí v deklaraci odpovídá pořadí pushování na stacku, jako první argument je předaná nejdříve pushnutá hodnota)
+    \item \textbf{Add} - popne dvě čísla ze stacku a pushne zpět jejich součet
+    \item \textbf{Sub} - popne dvě čísla ze stacku a pushne zpět jejich rozdíl
+    \item \textbf{Mul} - popne dvě čísla ze stacku a pushne zpět jejich součin
+    \item \textbf{Div} - popne dvě čísla ze stacku a pushne zpět jejich podíl
+    \item \textbf{Mod} - popne dvě čísla ze stacku a pushne zpět zbytek po dělení
+    \item \textbf{Lt} - popne dvě čísla ze stacku a porovná je na nerovnost ostře menší než (výsledek pushne na stack stejně jako všechny ostatní operace porovnání, True/False je reprezentováno klasicky jako jedna/nula)
+    \item \textbf{Lte} - popne dvě čísla ze stacku a porovná je na nerovnost menší rovno než
+    \item \textbf{Gt} - popne dvě čísla ze stacku a porovná je na nerovnost ostře větší než
+    \item \textbf{Gte} - popne dvě čísla ze stacku a porovná je na nerovnost větší rovno než
+    \item \textbf{Eq} - popne dvě hodnoty ze stacku a porovná je na rovnost (jedná se o identická data)
+    \item \textbf{Not} - popne číslo ze stacku a pushne zpět jeho logické not (výsledkem je jedna pro hodnotu nula a nula pro libovolnou jinou hodnotu)
+\end{itemize}
+
+Samotný program je pak v IR reprezentován jako seznam deklarací, žádná z instrukcí výše tak nemůže stát sama o sobě jako top-level výraz, ale musí být součástí deklarace funkce. Deklarace funkce se skládá z prototypu (návratový typ, typy argumentů a název) a definice jejího těla.
+
+V dohledné době k deklaraci funkce jako aktuálně jediné povolené top-level konstrukci v IR přibyde ještě deklarace globální proměnné. Spolu s ní pak do IR přibydou operace \textbf{GetGlobal}, \textbf{SetGlobal}, \textbf{GetGlobalAddr} jako alternativy stejnojmenných operací pro práci s lokálními proměnnými funkcí. Dále, jak již bylo zmíněno, bude přidán také nový typ literálu string.
+
+\subsection{Implementace code generation}
+
+Jak již bylo zmíněno úvodem, samotné generování kódu probíhá aktuálně na jeden průchod IR vstupem a je rozděleno do dvou hlavních modulů. Obecného code generation modulu a modulu poskytujícího implementaci pro konkrétní cílovou architekturu.
+
+Obecný code generation je založený na principu virtuálního zásobníku, který vzhledem k tomu, že projektem zvolená IR je stack-based, za doby kompilace simuluje stav zásobníku překládaného programu. Tento přístup umožňuje poměrně snadno provádět základní lokální optimalizace, jako je constant folding (tedy vyhodnocení operací závislých pouze na konstantních/za překladu známých hodnotách přímo překladačem bez generování jakýchkoliv instrukcí). Nebo při doplnění o jednoduchou cache, která ukládá, jaké hodnoty jsou aktuálně uložené v jednotlivých registrech (obdoba local value numbering), snížit množství vygenerovaných přístupů do paměti. Obecný code generation modul tak zajišťuje primárně tuto obecnou simulaci virtuálního zásobníku pro jednotlivé IR instrukce a další s ní spojenou správu stavu code generation (invalidace zmíněných cache, udržování známých funkcí a lokálních proměnných,...), která se neliší mezi jednotlivými architekturami. A samotný výběr hardwarových instrukcí a alokaci registrů pak deleguje na modul s konkrétní implementací cílové platformy.
+
+Modul s implementací pak musí za tímto účelem poskytovat implementace dvou parametrizovaných typových tříd definujících rozhraní pro komunikaci s obecným code generation. Těmito třídami jsou \textit{InstSelector} a \textit{RegisterAllocator}. Kdy první z tříd zajišťuje rozhraní pro samotný výběr hardwarových instrukcí a druhá pro alokaci registrů procesoru. V obecnosti by mělo být do budoucna možné dohromady používat různě parametrizovaný instruction selector a register allocator (vazbu mezi třídami sive nelze odstranit úplně, protože obě do nějaké míry závisí na konkrétní cílové architektuře, ale bylo by možné například umožnit dynamicky přepínat mezi různými algoritmy alokace registrů pro stejnou instrukční sadu). V současné chvíli ale implementace spoléhá na fakt, že pro každou platformu existuje jeden instruction selector a k němu odpovídající register allocator.
+
+Posledním krokem, který už příliš nesouvisí se samotným generováním kódu, je převod instrukcí vygenerovaných code generation krokem do podoby tisknutelného assembly. Převod interní reprezentace instrukcí pomocí algebraických/zobecněných algebraických datových typů do textové podoby je pak opět implementován pomocí parametrizované typové třídy \textit{AsmPrinter}, která každé instrukci přiřadí její textovou reprezentaci. Tento design pak umožňuje v budoucnu implementovat více různě parametrizovaných instancí dané třídy a poměrně snadno tak získat podporu pro více různých syntaxí zápisu stejné instrukční sady (jako je třeba Intel a GNU syntaxe v případě x86). 
 
 \clearpage\appendix
 \section{Vymezení pojmů}
