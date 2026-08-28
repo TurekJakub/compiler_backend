@@ -22,37 +22,37 @@ _testInput =
   [ Function
       $ FunctionDef
           { prototype = FunctionPrototype {name = "main", signature = FuncTypeSignature {returnType = IntType, argTypes = []}}
-      , body =
-          [ IrLiteral $ IntLiteral 42
-          , SetLocal "x"
-          , IrLiteral $ IntLiteral 1
-          , IrLiteral $ IntLiteral 2
-          , IrLiteral $ IntLiteral 3
-          , IrLiteral $ IntLiteral 4
-          , IrLiteral $ IntLiteral 5
-          , IrLiteral $ IntLiteral 6
-          , IrLiteral $ IntLiteral 7
-          , IrLiteral $ IntLiteral 8
-          , GetLocalAddr "x"
-          , FunctionCall "test"
-          , GetLocal "x"
-          ]
-      }
+          , body =
+              [ IrLiteral $ IntLiteral 42
+              , SetLocal "x"
+              , IrLiteral $ IntLiteral 1
+              , IrLiteral $ IntLiteral 2
+              , IrLiteral $ IntLiteral 3
+              , IrLiteral $ IntLiteral 4
+              , IrLiteral $ IntLiteral 5
+              , IrLiteral $ IntLiteral 6
+              , IrLiteral $ IntLiteral 7
+              , IrLiteral $ IntLiteral 8
+              , GetLocalAddr "x"
+              , FunctionCall "test"
+              , GetLocal "x"
+              ]
+          }
   , Function
       $ FunctionDef
-      { prototype =
-          FunctionPrototype
-            { name = "test"
-            , signature =
-                FuncTypeSignature
-                  { returnType = VoidType -- IntType
+          { prototype =
+              FunctionPrototype
+                { name = "test"
+                , signature =
+                    FuncTypeSignature
+                      { returnType = VoidType -- IntType
                       , argTypes = [IntType, IntType, IntType, IntType, IntType, IntType, IntType, IntType, IntType]
-                  }
-            }
-      , body =
-          [ IrLiteral $ IntLiteral 84
-          , GetLocal "arg8"
-          , Store IntType 0
+                      }
+                }
+          , body =
+              [ IrLiteral $ IntLiteral 84
+              , GetLocal "arg8"
+              , Store IntType 0
           {-
           ,  GetLocal "arg8"
           , IrLiteral (IntLiteral 42)
@@ -71,12 +71,9 @@ _testInput =
           , IrLiteral (IntLiteral 20)
           , Label "OwO"
           -}
-          ]
-      }
+              ]
+          }
   ]
 
 main :: IO ()
-main = do
-  let codegenResult = codegen @Rv32Inst testInput
-  putStrLn "--- Generated RISC-V assembly ---"
-  printAssembly codegenResult
+main = runDemo
