@@ -114,31 +114,31 @@ binCodgenOpHelper lhs rhs binOpDef =
     genericCodgen = do
       lhsTmp <- forceToReg lhs
       rhsTmp <- forceToReg rhs
-      (binOpDef ^. #regToRegCodegen) rhsTmp lhsTmp rhsTmp
+      target <- allocateRegister
+      (binOpDef ^. #regToRegCodegen) target lhsTmp rhsTmp
+      {-
+      
       freeRegister lhsTmp
       let res = Reg rhsTmp
       invalidateCacheLine res
-      pure res
+      -}
+      pure $ Reg target
     handleImmediate codgen i1 r1 =
       if is12BitsImm i1
         then do
-          codgen r1 r1 i1
-          let res = Reg r1
-          invalidateCacheLine res
-          pure res
+          target <- allocateRegister
+          codgen target r1 i1
+         -- let res = Reg r1
+         -- invalidateCacheLine res
+          pure $ Reg target
         else genericCodgen
 
 notBinOpDef :: BinOpDefinition a -> BinOpDefinition a
 notBinOpDef def =
   BinOpDefinition
-    { regToRegCodegen =
-        \t r1 r2 -> regToRegCodegen def t r1 r2 >> (emit $ rvEmitLogicalNot t t)
-    , immToRegCodegen =
-        (\f t r imm -> f t r imm >> (emit $ rvEmitLogicalNot t t))
-          <$> def ^. #immToRegCodegen
-    , regToImmCodegen =
-        (\f t r imm -> f t r imm >> (emit $ rvEmitLogicalNot t t))
-          <$> def ^. #regToImmCodegen
+    { regToRegCodegen = \t r1 r2 -> regToRegCodegen def t r1 r2 >> (emit $ rvEmitLogicalNot t t)
+    , immToRegCodegen = (\f t r imm -> f t r imm >> (emit $ rvEmitLogicalNot t t)) <$> def ^. #immToRegCodegen
+    , regToImmCodegen = (\f t r imm -> f t r imm >> (emit $ rvEmitLogicalNot t t)) <$> def ^. #regToImmCodegen
     }
 
 flipBinOpDef :: BinOpDefinition a -> BinOpDefinition a
@@ -230,11 +230,11 @@ rvCodegenSub lhs rhs =
   let subDef =
         BinOpDefinition
           { regToRegCodegen = \t r1 r2 -> emit $ RV_Sub t r1 r2
-          , regToImmCodegen =
+          , immToRegCodegen =
               Just $ \t r1 i1 -> do
                 emit $ RV_Sub t rvZeroRegister r1
                 emit $ RV_Addi t t i1
-          , immToRegCodegen =
+          , regToImmCodegen =
               Just $ \t r1 i1 ->
                 if is12BitsImm $ -i1
                   then emit $ RV_Addi t r1 (-i1)
@@ -251,12 +251,7 @@ rvCodegenMul ::
   -> VStackItem
   -> State (CodegenState (RiscVInst a)) VStackItem
 rvCodegenMul lhs rhs =
-  let mulDef =
-        BinOpDefinition
-          { regToRegCodegen = \t r1 r2 -> emit $ Rv_Mul t r1 r2
-          , regToImmCodegen = Nothing
-          , immToRegCodegen = Nothing
-          }
+  let mulDef = BinOpDefinition {regToRegCodegen = \t r1 r2 -> emit $ Rv_Mul t r1 r2, regToImmCodegen = Nothing, immToRegCodegen = Nothing}
    in binCodgenOpHelper lhs rhs mulDef
 
 rvCodegenDiv ::
@@ -265,12 +260,7 @@ rvCodegenDiv ::
   -> VStackItem
   -> State (CodegenState (RiscVInst a)) VStackItem
 rvCodegenDiv lhs rhs =
-  let divDef =
-        BinOpDefinition
-          { regToRegCodegen = \t r1 r2 -> emit $ Rv_Div t r1 r2
-          , regToImmCodegen = Nothing
-          , immToRegCodegen = Nothing
-          }
+  let divDef = BinOpDefinition {regToRegCodegen = \t r1 r2 -> emit $ Rv_Div t r1 r2, regToImmCodegen = Nothing, immToRegCodegen = Nothing}
    in binCodgenOpHelper lhs rhs divDef
 
 rvCodegenMod ::
@@ -279,12 +269,7 @@ rvCodegenMod ::
   -> VStackItem
   -> State (CodegenState (RiscVInst a)) VStackItem
 rvCodegenMod lhs rhs =
-  let modDef =
-        BinOpDefinition
-          { regToRegCodegen = \t r1 r2 -> emit $ Rv_Rem t r1 r2
-          , regToImmCodegen = Nothing
-          , immToRegCodegen = Nothing
-          }
+  let modDef = BinOpDefinition {regToRegCodegen = \t r1 r2 -> emit $ Rv_Rem t r1 r2, regToImmCodegen = Nothing, immToRegCodegen = Nothing}
    in binCodgenOpHelper lhs rhs modDef
 
 rvLtDef :: BinOpDefinition a
@@ -310,15 +295,16 @@ rvCodegenLte ::
   => VStackItem
   -> VStackItem
   -> State (CodegenState (RiscVInst a)) VStackItem
-rvCodegenLte lhs rhs =
-  binCodgenOpHelper lhs rhs (notBinOpDef $ flipBinOpDef rvLtDef)
+rvCodegenLte lhs rhs = binCodgenOpHelper lhs rhs (notBinOpDef $ flipBinOpDef rvLtDef)
 
 rvCodegenGt ::
      forall (a :: Arch). InstSelector (RiscVInst a)
   => VStackItem
   -> VStackItem
   -> State (CodegenState (RiscVInst a)) VStackItem
-rvCodegenGt lhs rhs = binCodgenOpHelper lhs rhs (flipBinOpDef rvLtDef)
+rvCodegenGt lhs rhs =
+  let gtDef = BinOpDefinition {regToRegCodegen = \t r1 r2 -> emit $ RV_Slt t r1 r2, immToRegCodegen = Nothing, regToImmCodegen = Nothing}
+   in binCodgenOpHelper lhs rhs gtDef
 
 rvCodegenGte ::
      forall (a :: Arch). InstSelector (RiscVInst a)
