@@ -274,6 +274,7 @@ class RegisterAllocator target where
     activeRegisters <- getActiveRegisters
     pure $ [r | (_, Reg r) <- Map.toList cached, r `notElem` activeRegisters]
   initialRegisterPool :: [Register]
+  callerSavedRegisters :: [Register]
 
 emit :: inst -> State (CodegenState inst) ()
 emit inst = #emittedCode %= (inst :)

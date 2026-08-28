@@ -261,6 +261,10 @@ codegenToken (FunctionCall funcName) = do
             ++ show argsCount
             ++ " got "
             ++ show (length vStack)
+      onStackRegisters <- getStackRegisters
+      let callerSaved = callerSavedRegisters @target
+          toSave = filter (`elem` callerSaved) onStackRegisters
+      toRestore <- saveCallerSaved toSave
       let (args, stackRest) = splitAt argsCount vStack
           argsRegsCount = funcArgumentsRegistersCount @target
           argsInOrder = reverse args
@@ -269,6 +273,8 @@ codegenToken (FunctionCall funcName) = do
       forM_ (zip ([0 ..] :: [Int]) regArgs) handleRegArgs
       handleMemArgs memArgs
       returnValue <- emitCall funcName retType
+      #virtualStack %= (returnValue ++)
+      restoreCallerSaved toRestore
       when (length memArgs > 0) $ restoreSp $ length memArgs
       #virtualStack %= (returnValue ++)
     Nothing -> error "Tries to call unknown function"
@@ -359,6 +365,32 @@ codegenBinOpHelper def = do
       #virtualStack .= (res : stackRest)
     _ -> error $ def ^. #underflowErrMsg
 
+saveCallerSaved ::
+     forall target. (InstSelector target, RegisterAllocator target)
+  => [Register]
+  -> State (CodegenState target) (Map Register Int)
+saveCallerSaved toSave =
+  foldM
+    (\acc reg -> do
+       offset <- allocateHwStackOffset
+       emit $ emitStore reg (spRegister @target) offset
+       pure (Map.insert reg offset acc))
+    Map.empty
+    toSave
+
+restoreCallerSaved ::
+     forall target. (InstSelector target, RegisterAllocator target)
+  => Map Register Int
+  -> State (CodegenState target) ()
+restoreCallerSaved savedMap = forM_ (Map.toList savedMap) $ \(reg, offset) -> emit $ emitLoad reg (spRegister @target) offset
+
+getStackRegisters ::
+     forall target. (InstSelector target, RegisterAllocator target)
+  => State (CodegenState target) [Register]
+getStackRegisters = do
+  vStack <- use #virtualStack
+  pure [r | Reg r <- vStack]
+
 computeFrameSize ::
      forall target. (InstSelector target, RegisterAllocator target)
   => FunctionDef
@@ -368,10 +400,8 @@ computeFrameSize func knownFuncDefs =
   let funcBody = func ^. #body
       localsCount = length $ collectLocals func
       maxStackDepth = computeMaxStackDepth funcBody 0 0
-      spillSlotsCount =
-        max 0 (maxStackDepth - length (initialRegisterPool @target))
-      frameSlots =
-        spillSlotsCount + localsCount + (extraFrameSlotsCount @target)
+      spillSlotsCount = max 0 (maxStackDepth - length (initialRegisterPool @target))
+      frameSlots = spillSlotsCount + localsCount + (extraFrameSlotsCount @target)
    in alignTo (spAlignment @target) (frameSlots * (registerSize @target))
   where
     computeMaxStackDepth [] _ peakDepth = peakDepth

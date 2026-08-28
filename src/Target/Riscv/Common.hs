@@ -522,7 +522,7 @@ rvSpAlignment :: Int
 rvSpAlignment = 16
 
 rvExtraFrameSlotsCount :: Int
-rvExtraFrameSlotsCount = 1
+rvExtraFrameSlotsCount = 16
 
 rvFuncArgumentsRegistersCount :: Int
 rvFuncArgumentsRegistersCount = 8

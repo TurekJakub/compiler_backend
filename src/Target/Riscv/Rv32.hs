@@ -102,3 +102,5 @@ instance InstSelector Rv32Inst where
 instance RegisterAllocator Rv32Inst where
   initialRegisterPool :: [Register]
   initialRegisterPool = rvInitialRegisterPool
+  callerSavedRegisters :: [Register]
+  callerSavedRegisters = rvCallerSavedRegisters

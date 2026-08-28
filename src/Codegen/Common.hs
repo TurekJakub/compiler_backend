@@ -16,12 +16,12 @@ import Optics.State.Operators ((%=), (.=))
 
 data RegisterType =
   GeneralPurpose
-  deriving (Enum, Show, Eq)
+  deriving (Enum, Show, Eq, Ord)
 
 data Register = Register
   { regName :: String
   , regType :: RegisterType
-  } deriving (Show, Eq)
+  } deriving (Show, Eq, Ord)
 
 type Immediate = Int
 
