@@ -14,12 +14,13 @@ module Codegen.Codegen
 import Codegen.Common
 import qualified Data.Map as Map
 import Ir
-  ( FuncTypeSignature(FuncTypeSignature, argTypes, returnType)
+  ( Definition(Function, Global)
+  , FuncTypeSignature(FuncTypeSignature, argTypes, returnType)
   , FunctionDef(body, prototype)
   , FunctionPrototype(name, signature)
-  , IrToken(Add, Branch, ConditionalBranch, Div, Drop, Eq, FunctionCall, GetLocal,
-            GetLocalAddr, Gt, Gte, IrLiteral, Label, Load, Lt, Lte, Mod, Mul, Not,
-            SetLocal, Store, Sub)
+  , GlobalDef
+  , IrToken(Add, Branch, ConditionalBranch, Div, Drop, Eq, FunctionCall, GetGlobal, GetGlobalAddr, GetLocal, GetLocalAddr, Gt, Gte, IrLiteral,
+            Label, Load, Lt, Lte, Mod, Mul, Not, PrintInt, SetGlobal, SetLocal, Store, Sub)
   , IrType(VoidType)
   , LabelName
   , Literal(IntLiteral)
@@ -30,7 +31,7 @@ import Target.Target
 import Control.Monad.State
 import Data.Map (Map)
 
-import Control.Monad (forM_, when)
+import Control.Monad (foldM, forM_, when)
 import Data.Bool (bool)
 import Data.Containers.ListUtils (nubOrd)
 import GHC.Generics (Generic)
@@ -59,11 +60,7 @@ codegenToken (GetLocal varName) = do
           #virtualStack %= (Reg allocated :)
           #cache % at (Var varName) .= Just (Reg allocated)
           emit $ emitLoad allocated (spRegister @target) varOffset
-        Nothing ->
-          error
-            $ "Tries to get value of undeclared local variable with label '"
-                ++ varName
-                ++ "'"
+        Nothing -> error $ "Tries to get value of undeclared local variable with label '" ++ varName ++ "'"
 codegenToken (SetLocal varName) = do
   vStack <- use #virtualStack
   case vStack of
@@ -90,8 +87,7 @@ codegenToken (GetLocalAddr varName) = do
       #notCachedLocals % contains varName .= True --We need to forbid caching of values to which someone takes ptr
       #cache % at (Var varName) .= Nothing
       #virtualStack %= (addr :)
-    Nothing ->
-      error $ "Tries to take address of undeclared local variable " ++ varName
+    Nothing -> error $ "Tries to take address of undeclared local variable " ++ varName
 codegenToken (Load dataType offset) = do
   vStack <- use #virtualStack
   case vStack of
@@ -105,16 +101,13 @@ codegenToken (Store dataType offset) = do
     (toStore:addr:stackRest) -> do
       codegenStore dataType offset toStore addr
       #virtualStack .= stackRest
-    _ ->
-      error
-        "Stack underflow: store operation requires base address and value to store on stack"
+    _ -> error "Stack underflow: store operation requires base address and value to store on stack"
 codegenToken Add =
   let addDef =
         BinOpDef
           { opImplementation = codegenAdd
           , immediateFolding = addLiterals
-          , underflowErrMsg =
-              "Stack underflow: there is not enough values to compute sum"
+          , underflowErrMsg = "Stack underflow: there is not enough values to compute sum"
           , generalErrMsg = "Tries to sum non numerical literals"
           }
    in codegenBinOpHelper addDef
@@ -123,8 +116,7 @@ codegenToken Sub =
         BinOpDef
           { opImplementation = codegenSub
           , immediateFolding = subLiterals
-          , underflowErrMsg =
-              "Stack underflow: there is not enough values to compute difference"
+          , underflowErrMsg = "Stack underflow: there is not enough values to compute difference"
           , generalErrMsg = "Tries to subtract non numerical literals"
           }
    in codegenBinOpHelper subDef
@@ -133,8 +125,7 @@ codegenToken Mul =
         BinOpDef
           { opImplementation = codegenMul
           , immediateFolding = mulLiterals
-          , underflowErrMsg =
-              "Stack underflow: there is not enough values to compute product"
+          , underflowErrMsg = "Stack underflow: there is not enough values to compute product"
           , generalErrMsg = "Tries to multiply non numerical literals"
           }
    in codegenBinOpHelper mulDef
@@ -143,8 +134,7 @@ codegenToken Div =
         BinOpDef
           { opImplementation = codegenDiv
           , immediateFolding = divLiterals
-          , underflowErrMsg =
-              "Stack underflow: there is not enough values for division"
+          , underflowErrMsg = "Stack underflow: there is not enough values for division"
           , generalErrMsg = "Tries to divide non numerical literals"
           }
    in codegenBinOpHelper divDef
@@ -153,8 +143,7 @@ codegenToken Mod =
         BinOpDef
           { opImplementation = codegenMod
           , immediateFolding = modLiterals
-          , underflowErrMsg =
-              "Stack underflow: there is not enough values to compute modulo"
+          , underflowErrMsg = "Stack underflow: there is not enough values to compute modulo"
           , generalErrMsg = "Tries to modulo non numerical literals"
           }
    in codegenBinOpHelper modDef
@@ -163,8 +152,7 @@ codegenToken Lt =
         BinOpDef
           { opImplementation = codegenLt
           , immediateFolding = ltLiterals
-          , underflowErrMsg =
-              "Stack underflow: there is not enough values to perform less than comparison"
+          , underflowErrMsg = "Stack underflow: there is not enough values to perform less than comparison"
           , generalErrMsg = "Tries to compare (less than) non numerical values"
           }
    in codegenBinOpHelper ltDef
@@ -173,10 +161,8 @@ codegenToken Lte =
         BinOpDef
           { opImplementation = codegenLte
           , immediateFolding = lteLiterals
-          , underflowErrMsg =
-              "Stack underflow: there is not enough values to perform less or equal than comparison"
-          , generalErrMsg =
-              "Tries to compare (less or equal than) non numerical values"
+          , underflowErrMsg = "Stack underflow: there is not enough values to perform less or equal than comparison"
+          , generalErrMsg = "Tries to compare (less or equal than) non numerical values"
           }
    in codegenBinOpHelper lteDef
 codegenToken Gt =
@@ -184,10 +170,8 @@ codegenToken Gt =
         BinOpDef
           { opImplementation = codegenGt
           , immediateFolding = gtLiterals
-          , underflowErrMsg =
-              "Stack underflow: there is not enough values to perform greater than comparison"
-          , generalErrMsg =
-              "Tries to compare (greater than) non numerical values"
+          , underflowErrMsg = "Stack underflow: there is not enough values to perform greater than comparison"
+          , generalErrMsg = "Tries to compare (greater than) non numerical values"
           }
    in codegenBinOpHelper gtDef
 codegenToken Gte =
@@ -195,10 +179,8 @@ codegenToken Gte =
         BinOpDef
           { opImplementation = codegenGte
           , immediateFolding = gteLiterals
-          , underflowErrMsg =
-              "Stack underflow: there is not enough values to perform greater or equal than comparison"
-          , generalErrMsg =
-              "Tries to compare (greater or equal than) non numerical values"
+          , underflowErrMsg = "Stack underflow: there is not enough values to perform greater or equal than comparison"
+          , generalErrMsg = "Tries to compare (greater or equal than) non numerical values"
           }
    in codegenBinOpHelper gteDef
 codegenToken Eq =
@@ -206,10 +188,8 @@ codegenToken Eq =
         BinOpDef
           { opImplementation = codegenEq
           , immediateFolding = eqLiterals
-          , underflowErrMsg =
-              "Stack underflow: there is not enough values to perform equality comparison"
-          , generalErrMsg =
-              "Tries to test equality of incomparable values values"
+          , underflowErrMsg = "Stack underflow: there is not enough values to perform equality comparison"
+          , generalErrMsg = "Tries to test equality of incomparable values values"
           }
    in codegenBinOpHelper gteDef
 codegenToken Not = do
@@ -276,8 +256,12 @@ codegenToken (FunctionCall funcName) = do
       #virtualStack %= (returnValue ++)
       restoreCallerSaved toRestore
       when (length memArgs > 0) $ restoreSp $ length memArgs
-      #virtualStack %= (returnValue ++)
     Nothing -> error "Tries to call unknown function"
+codegenToken PrintInt = do
+  vStack <- use #virtualStack
+  case vStack of
+    (toPrint:_) -> codeGenPrintInt @target toPrint
+    [] -> error "Stack underflow"
 codegenToken _ = return ()
 
 codegenFuncDefinition ::
@@ -287,6 +271,7 @@ codegenFuncDefinition ::
   -> [target]
 codegenFuncDefinition funcDef knowFuncDefs =
   let argsCount = length $ (view (#prototype % #signature % #argTypes) funcDef)
+      funcName = view (#prototype % #name) funcDef
       retType = view (#prototype % #signature % #returnType) funcDef
       frameSize = computeFrameSize @target funcDef knowFuncDefs
       initState = initCodegen argsCount frameSize knowFuncDefs
@@ -302,29 +287,22 @@ codegenFuncDefinition funcDef knowFuncDefs =
                 error
                   "There are no return value registers defined in target definition" -- This should never happened, implies backend target author error
             freeRegister tmp
-          (h:rest) ->
-            error
-              $ "Function must leave exactly one value at stack, actual stack: "
-                  ++ show (h : rest)
-          [] ->
-            when (retType /= VoidType)
-              $ error "Function vit non void return type must return value"
+          (h:rest) -> error $ "Function must leave exactly one value at stack, actual stack: " ++ show (h : rest)
+          [] -> when (retType /= VoidType) $ error "Function vit non void return type must return value"
       codegenResult = execState compilation initState
-   in emitFuncProlog funcDef frameSize
-        ++ reverse (emittedCode codegenResult)
-        ++ emitFuncEpilog frameSize
+   in emitFuncProlog funcDef frameSize ++ reverse (emittedCode codegenResult) ++ emitFuncEpilog frameSize funcName
 
 codegen ::
      forall target. InstSelector target
   => Program
   -> [target]
 codegen program =
-  let knowFuncDefs = collectFunctionDefs program
-      codegenResult = map (flip codegenFuncDefinition knowFuncDefs) program
+  let (funcDefs, globalDefs) = groupDefinitions program
+      knowFuncDefs = collectFunctionPrototypes funcDefs
+      codegenResult = map (flip codegenFuncDefinition knowFuncDefs) funcDefs
    in concat . reverse $ codegenResult
 
-blockChangeHelper ::
-     InstSelector target => LabelName -> State (CodegenState target) ()
+blockChangeHelper :: InstSelector target => LabelName -> State (CodegenState target) ()
 blockChangeHelper target = do
   vStack <- use #virtualStack
   forcedVStack <- mapM (\item -> Reg <$> forceToReg item) vStack
@@ -334,25 +312,19 @@ blockChangeHelper target = do
     Just targetState -> do
       when (length targetState /= length forcedVStack)
         $ error
-        $ "Stack depth before and after jump must be the same "
-            ++ show forcedVStack
-            ++ " "
-            ++ show targetState
+        $ "Stack depth before and after jump must be the same " ++ show forcedVStack ++ " " ++ show targetState
       handleStackStatesMerge forcedVStack targetState
       #virtualStack .= targetState
     Nothing -> #blockStackStates % at target .= Just forcedVStack
 
 data BinOpDef target = BinOpDef
   { immediateFolding :: Literal -> Literal -> Maybe Literal
-  , opImplementation :: VStackItem -> VStackItem -> State
-                                                      (CodegenState target)
-                                                      VStackItem
+  , opImplementation :: VStackItem -> VStackItem -> State (CodegenState target) VStackItem
   , underflowErrMsg :: String
   , generalErrMsg :: String
   } deriving (Generic)
 
-codegenBinOpHelper ::
-     InstSelector target => BinOpDef target -> State (CodegenState target) ()
+codegenBinOpHelper :: InstSelector target => BinOpDef target -> State (CodegenState target) ()
 codegenBinOpHelper def = do
   vStack <- use #virtualStack
   case vStack of
@@ -416,6 +388,9 @@ computeFrameSize func knownFuncDefs =
         GetLocal _ -> 1
         SetLocal _ -> -1
         GetLocalAddr _ -> 1
+        GetGlobal _ -> 1
+        SetGlobal _ -> -1
+        GetGlobalAddr _ -> 1
         Load _ _ -> 0
         Store _ _ -> -2
         Drop -> -1
@@ -432,6 +407,7 @@ computeFrameSize func knownFuncDefs =
         Not -> 0
         Branch _ -> 0
         Label _ -> 0
+        PrintInt -> -1
         ConditionalBranch _ -> -1
         FunctionCall fname ->
           case Map.lookup fname knownFuncDefs of
@@ -441,12 +417,14 @@ computeFrameSize func knownFuncDefs =
 collectLocals :: FunctionDef -> [IrToken]
 collectLocals def = nubOrd [SetLocal x | (SetLocal x) <- (def ^. #body)]
 
-collectFunctionDefs :: Program -> Map String FuncTypeSignature
-collectFunctionDefs program =
-  Map.fromList
-    [ (view (#prototype % #name) fn, view (#prototype % #signature) fn)
-    | fn <- program
-    ]
+groupDefinitions :: Program -> ([FunctionDef], [GlobalDef])
+groupDefinitions = foldr group ([], [])
+  where
+    group (Function fn) (fns, globals) = (fn : fns, globals)
+    group (Global global) (fns, globals) = (fns, global : globals)
+
+collectFunctionPrototypes :: [FunctionDef] -> Map String FuncTypeSignature
+collectFunctionPrototypes program = Map.fromList [(view (#prototype % #name) fn, view (#prototype % #signature) fn) | fn <- program]
 
 addLiterals :: Literal -> Literal -> Maybe Literal
 addLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral $ a + b)
@@ -473,8 +451,7 @@ ltLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral $ bool 0 1 $ a < b)
 ltLiterals _ _ = Nothing
 
 lteLiterals :: Literal -> Literal -> Maybe Literal
-lteLiterals (IntLiteral a) (IntLiteral b) =
-  Just (IntLiteral $ bool 0 1 $ a <= b)
+lteLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral $ bool 0 1 $ a <= b)
 lteLiterals _ _ = Nothing
 
 gtLiterals :: Literal -> Literal -> Maybe Literal
@@ -482,8 +459,7 @@ gtLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral $ bool 0 1 $ a > b)
 gtLiterals _ _ = Nothing
 
 gteLiterals :: Literal -> Literal -> Maybe Literal
-gteLiterals (IntLiteral a) (IntLiteral b) =
-  Just (IntLiteral $ bool 0 1 $ a >= b)
+gteLiterals (IntLiteral a) (IntLiteral b) = Just (IntLiteral $ bool 0 1 $ a >= b)
 gteLiterals _ _ = Nothing
 
 eqLiterals :: Literal -> Literal -> Maybe Literal

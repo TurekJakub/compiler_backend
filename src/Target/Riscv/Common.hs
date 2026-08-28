@@ -23,11 +23,7 @@ import Optics.State.Operators ((.=))
 import Control.Monad (when)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Target.Target
-  ( InstSelector(..)
-  , RegisterAllocator(allocateRegister, initialRegisterPool)
-  , emit
-  )
+import Target.Target (InstSelector(..), RegisterAllocator(allocateRegister, initialRegisterPool), emit)
 
 type Rv64Inst = RiscVInst 'RV64
 
@@ -52,6 +48,7 @@ data RiscVInst (a :: Arch) where
   RV_Ori :: Register -> Register -> Immediate -> RiscVInst a
   RV_Xor :: Register -> Register -> Register -> RiscVInst a
   RV_Xori :: Register -> Register -> Immediate -> RiscVInst a
+  Rv_Ecall :: RiscVInst a
   RV_J :: LabelName -> RiscVInst a
   RV_Label :: LabelName -> RiscVInst a
   RV_Beq :: Register -> Register -> LabelName -> RiscVInst a
@@ -69,14 +66,10 @@ data RiscVInst (a :: Arch) where
 rvZeroRegister :: Register
 rvZeroRegister = Register "zero" GeneralPurpose
 
-type ImmRegBinOpCodegen (a :: Arch)
-  = Register -> Register -> Immediate -> State (CodegenState (RiscVInst a)) ()
+type ImmRegBinOpCodegen (a :: Arch) = Register -> Register -> Immediate -> State (CodegenState (RiscVInst a)) ()
 
 data BinOpDefinition (a :: Arch) = BinOpDefinition
-  { regToRegCodegen :: Register -> Register -> Register -> State
-                                                             (CodegenState
-                                                                (RiscVInst a))
-                                                             ()
+  { regToRegCodegen :: Register -> Register -> Register -> State (CodegenState (RiscVInst a)) ()
   , immToRegCodegen :: Maybe (ImmRegBinOpCodegen a)
   , regToImmCodegen :: Maybe (ImmRegBinOpCodegen a)
   } deriving (Generic)
@@ -150,8 +143,7 @@ flipBinOpDef def =
     }
 
 foldAddressHelper ::
-     forall (a :: Arch).
-     (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
+     forall (a :: Arch). (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
   => VStackItem
   -> Int
   -> State (CodegenState (RiscVInst a)) (Register, Int, Bool)
@@ -186,10 +178,8 @@ rvInitCodegen argsCount frameSize knowFuncDefs =
   let initialCache =
         Map.fromList
           [ if i < 8
-            then ( Var ("arg" ++ show i)
-                 , Reg (Register ("a" ++ show i) GeneralPurpose))
-            else ( Var ("arg" ++ show i)
-                 , Spilled (frameSize + (i - 8) * registerSize @target))
+            then (Var ("arg" ++ show i), Reg (Register ("a" ++ show i) GeneralPurpose))
+            else (Var ("arg" ++ show i), Spilled (frameSize + (i - 8) * registerSize @target))
           | i <- [0 .. argsCount - 1]
           ]
    in CodegenState
@@ -213,10 +203,7 @@ rvCodegenAdd ::
 rvCodegenAdd lhs rhs =
   let addDef =
         BinOpDefinition
-          { regToRegCodegen = \t r1 r2 -> emit $ RV_Add t r1 r2
-          , regToImmCodegen = Just $ addiCodegen
-          , immToRegCodegen = Just $ addiCodegen
-          }
+          {regToRegCodegen = \t r1 r2 -> emit $ RV_Add t r1 r2, regToImmCodegen = Just $ addiCodegen, immToRegCodegen = Just $ addiCodegen}
    in binCodgenOpHelper lhs rhs addDef
   where
     addiCodegen tar reg imm = emit $ RV_Addi tar reg imm
@@ -349,8 +336,7 @@ rvCodegenLogicalNot operand =
       reg <- forceToReg operand
       emit $ rvEmitLogicalNot reg reg
       pure $ Reg reg
-    (Immediate _) ->
-      error "Constant folding should be handled by general codegen pass"
+    (Immediate _) -> error "Constant folding should be handled by general codegen pass"
 
 rvCodegenBranchIfZero ::
      forall (a :: Arch). InstSelector (RiscVInst a)
@@ -369,8 +355,7 @@ rvCodegenBranchIfZero precedent target =
     _ -> return () -- This should be handled by generic codegen pass
 
 rvCodegenGetLocalAddr ::
-     forall (a :: Arch).
-     (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
+     forall (a :: Arch). (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
   => Int
   -> State (CodegenState (RiscVInst a)) VStackItem
 rvCodegenGetLocalAddr offset =
@@ -387,8 +372,7 @@ rvCodegenGetLocalAddr offset =
       return $ Reg addrReg
 
 rvCodegenLoad ::
-     forall (a :: Arch).
-     (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
+     forall (a :: Arch). (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
   => IrType
   -> Int
   -> VStackItem
@@ -404,8 +388,7 @@ rvCodegenLoad dataType offset addr = do
     _ -> error "Load of non integer values not implemented yet"
 
 rvCodegenStore ::
-     forall (a :: Arch).
-     (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
+     forall (a :: Arch). (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
   => IrType
   -> Int
   -> VStackItem
@@ -419,6 +402,20 @@ rvCodegenStore dataType offset addr toStore = do
       emit $ emitStore toStoreReg addReg foldedOffset
       when isAddrTmp $ freeRegister addReg
     _ -> error "Store of non integer values not implemented yet"
+
+rvCodegenSyscall :: Immediate -> State (CodegenState (RiscVInst a)) ()
+rvCodegenSyscall syscallNum = do
+  emit $ RV_Li rvSyscallRegister syscallNum
+  emit $ Rv_Ecall
+
+rvCodegenPrintInt ::
+     forall (a :: Arch). InstSelector (RiscVInst a)
+  => VStackItem
+  -> State (CodegenState (RiscVInst a)) ()
+rvCodegenPrintInt toPrint = do
+  toPrintReg <- forceToReg @(RiscVInst a) toPrint
+  emitMove (Register "a0" GeneralPurpose) toPrintReg
+  codegenSyscall 1
 
 rvLoadImmediate ::
      forall (a :: Arch). InstSelector (RiscVInst a)
@@ -448,8 +445,7 @@ rvEmitMove r1 r2 =
     else return ()
 
 rvEmitCall ::
-     forall (a :: Arch).
-     (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
+     forall (a :: Arch). (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
   => String
   -> IrType
   -> State (CodegenState (RiscVInst a)) [VStackItem]
@@ -479,8 +475,7 @@ rvEmitLogicalNot :: Register -> Register -> RiscVInst a
 rvEmitLogicalNot r1 r2 = RV_Xori r1 r2 1
 
 rvEmitFuncProlog ::
-     forall (a :: Arch).
-     (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
+     forall (a :: Arch). (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
   => FunctionDef
   -> Int
   -> [(RiscVInst a)]
@@ -495,19 +490,15 @@ rvEmitFuncProlog funcDef funcFrameSize =
       ]
 
 rvEmitFuncEpilog ::
-     forall (a :: Arch).
-     (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
+     forall (a :: Arch). (InstSelector (RiscVInst a), RegisterAllocator (RiscVInst a))
   => Int
+  -> String
   -> [(RiscVInst a)]
-rvEmitFuncEpilog funcFrameSize =
+rvEmitFuncEpilog funcFrameSize fncName =
   let raOffset = getRaOffset funcFrameSize (registerSize @(RiscVInst a))
-   in [ emitLoad
-          (raRegister @(RiscVInst a))
-          (spRegister @(RiscVInst a))
-          raOffset
-      , bumpSp funcFrameSize
-      , RV_Ret
-      ]
+   in if fncName == "main"
+        then [RV_Li rvSyscallRegister 93, Rv_Ecall]
+        else [emitLoad (raRegister @(RiscVInst a)) (spRegister @(RiscVInst a)) raOffset, bumpSp funcFrameSize, RV_Ret]
 
 rvSpRegister :: Register
 rvSpRegister = Register "sp" GeneralPurpose
@@ -528,8 +519,13 @@ rvFuncArgumentsRegistersCount :: Int
 rvFuncArgumentsRegistersCount = 8
 
 rvInitialRegisterPool :: [Register]
-rvInitialRegisterPool =
-  map (\n -> Register ("t" ++ show n) GeneralPurpose) ([0 .. 6] :: [Int])
+rvInitialRegisterPool = map (\n -> Register ("t" ++ show n) GeneralPurpose) ([0 .. 6] :: [Int])
+
+rvCallerSavedRegisters :: [Register]
+rvCallerSavedRegisters = rvInitialRegisterPool
+
+rvSyscallRegister :: Register
+rvSyscallRegister = Register "a7" GeneralPurpose
 
 getRaOffset :: Int -> Int -> Int
 getRaOffset funcFrameSize regSize = funcFrameSize - regSize

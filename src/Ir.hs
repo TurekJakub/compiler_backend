@@ -21,6 +21,9 @@ data IrToken
   = GetLocal VarName
   | SetLocal VarName
   | GetLocalAddr VarName
+  | GetGlobal VarName
+  | SetGlobal VarName
+  | GetGlobalAddr VarName
   | Load
       { dataType :: IrType
       , offset :: Int
@@ -52,6 +55,7 @@ data IrToken
   | Gte
   | Eq
   | Not
+  | PrintInt
   deriving (Show, Eq, Ord)
 
 data IrType
@@ -76,7 +80,18 @@ data FunctionDef = FunctionDef
   , body :: [IrToken]
   } deriving (Show, Generic)
 
-type Program = [FunctionDef]
+data GlobalDef = GlobalDef
+  { globalName :: VarName
+  , globalType :: IrType
+  , initialVal :: Literal
+  , const :: Bool
+  }
+
+data Definition
+  = Function FunctionDef
+  | Global GlobalDef
+
+type Program = [Definition]
 
 -- Maybe later :)
 data BasicBlock = BasicBlock

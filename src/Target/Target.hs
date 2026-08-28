@@ -28,12 +28,10 @@ data Arch
 class RegisterAllocator target =>
       InstSelector target
   where
-  initCodegen ::
-       Int -> Int -> Map String FuncTypeSignature -> CodegenState target
+  initCodegen :: Int -> Int -> Map String FuncTypeSignature -> CodegenState target
   forceToReg :: VStackItem -> State (CodegenState target) Register
   forceToReg (Immediate (IntLiteral i)) = forceImmediateToReg i
-  forceToReg (Immediate (CharLiteral _)) =
-    error "Only Int literals are supported yet :)"
+  forceToReg (Immediate (CharLiteral _)) = error "Only Int literals are supported yet :)"
   forceToReg (Reg r) = pure r
   forceToReg (Spilled spillOffset) = do
     reg <- allocateRegister
@@ -49,14 +47,9 @@ class RegisterAllocator target =>
         loadTo <- allocateRegister
         loadImmediate i loadTo
         pure loadTo
-  handleStackStatesMerge ::
-       [VStackItem] -> [VStackItem] -> State (CodegenState target) ()
+  handleStackStatesMerge :: [VStackItem] -> [VStackItem] -> State (CodegenState target) ()
   handleStackStatesMerge current target = do
-    let toMerge =
-          [ (i, c, t)
-          | (i, (c, t)) <- zip ([0 ..] :: [Int]) (zip current target)
-          , c /= t
-          ]
+    let toMerge = [(i, c, t) | (i, (c, t)) <- zip ([0 ..] :: [Int]) (zip current target), c /= t]
     case toMerge of
       [] -> return ()
       ((idx, curr, _):_) -> do
@@ -65,11 +58,7 @@ class RegisterAllocator target =>
                 Reg r -> c == Reg r
                 Spilled offset -> c == Spilled offset
                 _ -> False
-        let nonConflictingMoves =
-              [ (i, c, t)
-              | (i, c, t) <- toMerge
-              , not (any (conflicts t) (filter (\(j, _, _) -> j /= i) toMerge))
-              ]
+        let nonConflictingMoves = [(i, c, t) | (i, c, t) <- toMerge, not (any (conflicts t) (filter (\(j, _, _) -> j /= i) toMerge))]
         case nonConflictingMoves of
           ((i, c, t):_) -> do
             mergeItem c t
@@ -85,10 +74,8 @@ class RegisterAllocator target =>
         | currentItem == targetItem = return ()
       mergeItem currentItem targetItem =
         case (currentItem, targetItem) of
-          (Immediate (IntLiteral currVal), Reg targetReg) ->
-            loadImmediate currVal targetReg
-          (Spilled hwOffset, Reg targetReg) ->
-            emit $ emitLoad targetReg (spRegister @target) hwOffset
+          (Immediate (IntLiteral currVal), Reg targetReg) -> loadImmediate currVal targetReg
+          (Spilled hwOffset, Reg targetReg) -> emit $ emitLoad targetReg (spRegister @target) hwOffset
           (Reg currentReg, Reg targetReg) -> emitMove targetReg currentReg
           (Immediate (IntLiteral i), Spilled hwOffsetTarget) -> do
             tmp <- forceImmediateToReg i
@@ -99,8 +86,7 @@ class RegisterAllocator target =>
             emit $ emitLoad tmp (spRegister @target) hwOffsetCurrent
             emit $ emitStore tmp (raRegister @target) hwOffsetTarget
             freeRegister tmp
-          (Reg currentReg, Spilled hwOffsetTarget) ->
-            emit $ emitStore currentReg (spRegister @target) hwOffsetTarget
+          (Reg currentReg, Spilled hwOffsetTarget) -> emit $ emitStore currentReg (spRegister @target) hwOffsetTarget
           _ ->
             error
               $ "Unable to merge stack items on block change, current item: "
@@ -109,39 +95,24 @@ class RegisterAllocator target =>
                   ++ show target
       replaceVStackItem _ _ [] = []
       replaceVStackItem 0 newVal (_:ts) = newVal : ts
-      replaceVStackItem offset newVal (h:ts) =
-        h : replaceVStackItem (offset - 1) newVal ts
-  codegenAdd ::
-       VStackItem -> VStackItem -> State (CodegenState target) VStackItem
-  codegenSub ::
-       VStackItem -> VStackItem -> State (CodegenState target) VStackItem
-  codegenMul ::
-       VStackItem -> VStackItem -> State (CodegenState target) VStackItem
-  codegenDiv ::
-       VStackItem -> VStackItem -> State (CodegenState target) VStackItem
-  codegenMod ::
-       VStackItem -> VStackItem -> State (CodegenState target) VStackItem
-  codegenLt ::
-       VStackItem -> VStackItem -> State (CodegenState target) VStackItem
-  codegenLte ::
-       VStackItem -> VStackItem -> State (CodegenState target) VStackItem
-  codegenGt ::
-       VStackItem -> VStackItem -> State (CodegenState target) VStackItem
-  codegenGte ::
-       VStackItem -> VStackItem -> State (CodegenState target) VStackItem
-  codegenEq ::
-       VStackItem -> VStackItem -> State (CodegenState target) VStackItem
+      replaceVStackItem offset newVal (h:ts) = h : replaceVStackItem (offset - 1) newVal ts
+  codegenAdd :: VStackItem -> VStackItem -> State (CodegenState target) VStackItem
+  codegenSub :: VStackItem -> VStackItem -> State (CodegenState target) VStackItem
+  codegenMul :: VStackItem -> VStackItem -> State (CodegenState target) VStackItem
+  codegenDiv :: VStackItem -> VStackItem -> State (CodegenState target) VStackItem
+  codegenMod :: VStackItem -> VStackItem -> State (CodegenState target) VStackItem
+  codegenLt :: VStackItem -> VStackItem -> State (CodegenState target) VStackItem
+  codegenLte :: VStackItem -> VStackItem -> State (CodegenState target) VStackItem
+  codegenGt :: VStackItem -> VStackItem -> State (CodegenState target) VStackItem
+  codegenGte :: VStackItem -> VStackItem -> State (CodegenState target) VStackItem
+  codegenEq :: VStackItem -> VStackItem -> State (CodegenState target) VStackItem
   codegenNot :: VStackItem -> State (CodegenState target) VStackItem
   codegenBranchIfZero :: VStackItem -> String -> State (CodegenState target) ()
   codegenGetLocalAddr :: Int -> State (CodegenState target) VStackItem
-  codegenLoad ::
-       IrType -> Int -> VStackItem -> State (CodegenState target) VStackItem
-  codegenStore ::
-       IrType
-    -> Int
-    -> VStackItem
-    -> VStackItem
-    -> State (CodegenState target) ()
+  codegenLoad :: IrType -> Int -> VStackItem -> State (CodegenState target) VStackItem
+  codegenStore :: IrType -> Int -> VStackItem -> VStackItem -> State (CodegenState target) ()
+  codegenSyscall :: Int -> State (CodegenState target) ()
+  codeGenPrintInt :: VStackItem -> State (CodegenState target) ()
   emitLoad :: Register -> Register -> Immediate -> target
   emitStore :: Register -> Register -> Immediate -> target
   emitAddi :: Register -> Register -> Immediate -> target
@@ -151,7 +122,7 @@ class RegisterAllocator target =>
   emitJump :: String -> target
   emitBranchIfEqual :: Register -> Register -> String -> target
   emitFuncProlog :: FunctionDef -> Int -> [target]
-  emitFuncEpilog :: Int -> [target]
+  emitFuncEpilog :: Int -> String -> [target]
   loadImmediate :: Immediate -> Register -> State (CodegenState target) ()
   handleRegArgs :: (Int, VStackItem) -> State (CodegenState target) ()
   handleRegArgs (stackOffset, vStackItem) = do
@@ -171,8 +142,7 @@ class RegisterAllocator target =>
         regSize = registerSize @target
      in when (memArgCount > 0) $ do
           let argsBytes = alignTo (spAlignment @target) (memArgCount * regSize)
-          forM_ (zip ([0 ..] :: [Int]) memArgs) $ \(i, arg) ->
-            pushToPhysStack (-argsBytes + (i * regSize)) arg
+          forM_ (zip ([0 ..] :: [Int]) memArgs) $ \(i, arg) -> pushToPhysStack (-argsBytes + (i * regSize)) arg
           emit $ bumpSp $ -argsBytes
   pushToPhysStack :: Int -> VStackItem -> State (CodegenState target) ()
   pushToPhysStack hwStackOffset toPush = do
@@ -180,11 +150,7 @@ class RegisterAllocator target =>
     emit $ emitStore regToPush (spRegister @target) hwStackOffset
     freeRegister regToPush
   restoreSp :: Int -> State (CodegenState target) ()
-  restoreSp memArgsCount =
-    when (memArgsCount > 0)
-      $ emit
-      $ bumpSp
-      $ memArgsCount * registerSize @target
+  restoreSp memArgsCount = when (memArgsCount > 0) $ emit $ bumpSp $ memArgsCount * registerSize @target
   bumpSp :: Int -> target
   bumpSp bytes =
     let alignedBytes = alignTo (spAlignment @target) (abs bytes)
@@ -202,8 +168,7 @@ class RegisterAllocator target =>
   funcArgumentsRegistersCount :: Int
 
 class RegisterAllocator target where
-  allocateRegister ::
-       InstSelector target => State (CodegenState target) Register
+  allocateRegister :: InstSelector target => State (CodegenState target) Register
   allocateRegister = do
     freeRegs <- use #freeRegisters
     case freeRegs of
@@ -215,13 +180,10 @@ class RegisterAllocator target where
         case freedReg of
           Just r -> pure r
           Nothing -> handleRegistersSpill
-  handleRegistersSpill ::
-       InstSelector target => State (CodegenState target) Register
+  handleRegistersSpill :: InstSelector target => State (CodegenState target) Register
   handleRegistersSpill = do
     activeRegisters <- getActiveRegisters
-    when (length activeRegisters == 0)
-      $ error
-          "Error: run out of CPU register and there are also non to be spilled to memory"
+    when (length activeRegisters == 0) $ error "Error: run out of CPU register and there are also non to be spilled to memory"
     let toSpill = last activeRegisters
     spillOffset <- allocateHwStackOffset
     invalidateCacheLine $ Reg toSpill
@@ -242,8 +204,7 @@ class RegisterAllocator target where
         invalidateCacheLine $ Reg toFree
         pure $ Just toFree
       [] -> pure $ Nothing
-  allocateHwStackOffset ::
-       InstSelector target => State (CodegenState target) HwStackOffset
+  allocateHwStackOffset :: InstSelector target => State (CodegenState target) HwStackOffset
   allocateHwStackOffset = do
     freeOffsets <- use #freeSpillOffsets
     case freeOffsets of

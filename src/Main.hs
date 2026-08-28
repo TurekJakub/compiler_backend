@@ -2,32 +2,26 @@ module Main
   ( main
   ) where
 
-import Asm.Asm (printAssembly)
 import Asm.Riscv ()
-import Codegen.Codegen (codegen)
+import Demo (runDemo)
 import Ir
-  ( FuncTypeSignature(FuncTypeSignature, argTypes, returnType)
+  ( Definition(Function)
+  , FuncTypeSignature(FuncTypeSignature, argTypes, returnType)
   , FunctionDef(FunctionDef, body, prototype)
   , FunctionPrototype(FunctionPrototype, name, signature)
-  , IrToken(Add, Branch, ConditionalBranch, Eq, FunctionCall, GetLocal, GetLocalAddr,
-            Gte, IrLiteral, Label, Mul, Not, SetLocal, Store, Sub)
+  , IrToken(FunctionCall, GetLocal, GetLocalAddr, IrLiteral, SetLocal, Store)
   , IrType(IntType, VoidType)
   , Literal(IntLiteral)
   , Program
   )
-import Target.Riscv.Common (Rv32Inst, Rv64Inst)
 import Target.Riscv.Rv32 ()
 import Target.Riscv.Rv64 ()
 
-testInput :: Program
-testInput =
-  [ FunctionDef
-      { prototype =
-          FunctionPrototype
-            { name = "main"
-            , signature =
-                FuncTypeSignature {returnType = IntType, argTypes = []}
-            }
+_testInput :: Program
+_testInput =
+  [ Function
+      $ FunctionDef
+          { prototype = FunctionPrototype {name = "main", signature = FuncTypeSignature {returnType = IntType, argTypes = []}}
       , body =
           [ IrLiteral $ IntLiteral 42
           , SetLocal "x"
@@ -44,24 +38,15 @@ testInput =
           , GetLocal "x"
           ]
       }
-  , FunctionDef
+  , Function
+      $ FunctionDef
       { prototype =
           FunctionPrototype
             { name = "test"
             , signature =
                 FuncTypeSignature
                   { returnType = VoidType -- IntType
-                  , argTypes =
-                      [ IntType
-                      , IntType
-                      , IntType
-                      , IntType
-                      , IntType
-                      , IntType
-                      , IntType
-                      , IntType
-                      , IntType
-                      ]
+                      , argTypes = [IntType, IntType, IntType, IntType, IntType, IntType, IntType, IntType, IntType]
                   }
             }
       , body =

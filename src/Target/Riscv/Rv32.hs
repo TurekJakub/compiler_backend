@@ -9,63 +9,49 @@ import Control.Monad.State
 import Data.Map (Map)
 
 import Target.Riscv.Common
-import Target.Target (InstSelector(..), RegisterAllocator(initialRegisterPool))
+import Target.Target (InstSelector(..), RegisterAllocator(..))
 
 instance InstSelector Rv32Inst where
-  initCodegen ::
-       Int -> Int -> Map String FuncTypeSignature -> CodegenState Rv32Inst
+  initCodegen :: Int -> Int -> Map String FuncTypeSignature -> CodegenState Rv32Inst
   initCodegen = rvInitCodegen @Rv32Inst @Rv32Inst
-  codegenAdd ::
-       VStackItem -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
+  codegenAdd :: VStackItem -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
   codegenAdd = rvCodegenAdd
-  codegenSub ::
-       VStackItem -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
+  codegenSub :: VStackItem -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
   codegenSub = rvCodegenSub
-  codegenMul ::
-       VStackItem -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
+  codegenMul :: VStackItem -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
   codegenMul = rvCodegenMul
-  codegenDiv ::
-       VStackItem -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
+  codegenDiv :: VStackItem -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
   codegenDiv = rvCodegenDiv
-  codegenMod ::
-       VStackItem -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
+  codegenMod :: VStackItem -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
   codegenMod = rvCodegenMod
-  codegenLt ::
-       VStackItem -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
+  codegenLt :: VStackItem -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
   codegenLt = rvCodegenLt
-  codegenLte ::
-       VStackItem -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
+  codegenLte :: VStackItem -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
   codegenLte = rvCodegenLte
-  codegenGt ::
-       VStackItem -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
+  codegenGt :: VStackItem -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
   codegenGt = rvCodegenGt
-  codegenGte ::
-       VStackItem -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
+  codegenGte :: VStackItem -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
   codegenGte = rvCodegenGte
-  codegenEq ::
-       VStackItem -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
+  codegenEq :: VStackItem -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
   codegenEq = rvCodegenEq
   codegenNot :: VStackItem -> State (CodegenState Rv32Inst) VStackItem
   codegenNot = rvCodegenLogicalNot
-  codegenBranchIfZero ::
-       VStackItem -> String -> State (CodegenState Rv32Inst) ()
+  codegenBranchIfZero :: VStackItem -> String -> State (CodegenState Rv32Inst) ()
   codegenBranchIfZero = rvCodegenBranchIfZero
   codegenGetLocalAddr :: Int -> State (CodegenState Rv32Inst) VStackItem
   codegenGetLocalAddr = rvCodegenGetLocalAddr
-  codegenLoad ::
-       IrType -> Int -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
+  codegenLoad :: IrType -> Int -> VStackItem -> State (CodegenState Rv32Inst) VStackItem
   codegenLoad = rvCodegenLoad
-  codegenStore ::
-       IrType
-    -> Int
-    -> VStackItem
-    -> VStackItem
-    -> State (CodegenState Rv32Inst) ()
+  codegenStore :: IrType -> Int -> VStackItem -> VStackItem -> State (CodegenState Rv32Inst) ()
   codegenStore = rvCodegenStore
   loadImmediate :: Immediate -> Register -> State (CodegenState Rv32Inst) ()
   loadImmediate = rvLoadImmediate
   emitLoad :: Register -> Register -> Immediate -> Rv32Inst
   emitLoad target src offset = RV_Lw target src offset
+  codegenSyscall :: Int -> State (CodegenState Rv32Inst) ()
+  codegenSyscall = rvCodegenSyscall
+  codeGenPrintInt :: VStackItem -> State (CodegenState Rv32Inst) ()
+  codeGenPrintInt = rvCodegenPrintInt
   emitStore :: Register -> Register -> Immediate -> Rv32Inst
   emitStore src targetAddr offset = RV_Sw src targetAddr offset
   emitAddi :: Register -> Register -> Immediate -> Rv32Inst
@@ -82,7 +68,7 @@ instance InstSelector Rv32Inst where
   emitBranchIfEqual = rvEmitBranchIfEqual
   emitFuncProlog :: FunctionDef -> Int -> [Rv32Inst]
   emitFuncProlog = rvEmitFuncProlog
-  emitFuncEpilog :: Int -> [Rv32Inst]
+  emitFuncEpilog :: Int -> String -> [Rv32Inst]
   emitFuncEpilog = rvEmitFuncEpilog
   spRegister :: Register
   spRegister = rvSpRegister
