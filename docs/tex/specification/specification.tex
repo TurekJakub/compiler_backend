@@ -9,6 +9,7 @@
 \usepackage{booktabs}
 \usepackage{xcolor}
 \usepackage{hyperref}
+\usepackage{minted}
 
 % pomůcka pro "TODO" -- před odevzdáním ji odmažte.
 \def\xxx#1{\textcolor{red!50}{\itshape #1}}
@@ -75,7 +76,7 @@ Pro implementaci backendu bude využit programovací jazyk Haskell. Dále bude p
 \subsection{Konvence tohoto dokumentu}
 
 %\xxx{Pokud plánujete používat typografické nebo jiné konvence při psaní této specifikace, popište je zde.}
-Názvy externích závislostí a knihoven jsou v dokumentu zvýrazněny kurzívou. V kapitole shrnující současný stav implementace jsou pak kurzívou zvýrazněny také názvy typových tříd deklarovaných v rámci implementace. Tučně jsou pak zvýrazněny názvy jednotlivých IR instrukcí.
+Názvy externích závislostí a knihoven jsou v dokumentu zvýrazněny kurzívou. V kapitole shrnující současný stav implementace jsou pak kurzívou zvýrazněny také názvy typových tříd deklarovaných v rámci implementace. Tučně jsou pak zvýrazněny názvy jednotlivých IR instrukcí. V podkapitole pojednávající o demo ukázce projektu jsou tučně zvýrazněny jednotlivé přepínače konzolového rozhraní.
 
 \section{Stručný popis softwarového díla}
 
@@ -231,7 +232,7 @@ Datum & Milník & Způsob prezentace \\
 \end{center}
 
 \clearpage
-\section{Completion}
+\section{Zakončení}
 
 Projekt aktuálně implementuje jednoduchý jednoprůchodový code generation pro RISC-V na základě vstupu reprezentujícího vstupní program prostřednictvím stack-based mezikódu. Architektura RISC-V je podporována jak v 64-bitové, tak v 32-bitové verzi (RV64 a RV32) jako základní ukázka mechanismu, kterým bude v budoucnu možné přidat podporu pro další architektury (jako je právě zmíněná x86). Z hlediska podporovaných funkcí code generation aktuálně podporuje pouze celočíselné proměnné a ukazatele, které jsou taktéž reprezentovány jako celé číslo šířky odpovídající velikosti adres cílové platformy. S proměnnými je možné provádět základní aritmetické a logické operace (sčítání, odčítání, násobení, dělení, modulo, porovnání,...). Proměnné typu pointer je pak možné použít k přímé práci s pamětí (load/store), zároveň je možné získat adresu existujících proměnných. Dále je podporováno deklarování a volání funkcí, tedy je implementována většina volací konvence pro RISC-V (s výjimkou ukládání stavu caller-saved registrů). Dále je pak připravována podpora pro globální proměnné a statická data, spolu s přidáním FFI.
 
@@ -278,7 +279,31 @@ Obecný code generation je založený na principu virtuálního zásobníku, kte
 
 Modul s implementací pak musí za tímto účelem poskytovat implementace dvou parametrizovaných typových tříd definujících rozhraní pro komunikaci s obecným code generation. Těmito třídami jsou \textit{InstSelector} a \textit{RegisterAllocator}. Kdy první z tříd zajišťuje rozhraní pro samotný výběr hardwarových instrukcí a druhá pro alokaci registrů procesoru. V obecnosti by mělo být do budoucna možné dohromady používat různě parametrizovaný instruction selector a register allocator (vazbu mezi třídami sive nelze odstranit úplně, protože obě do nějaké míry závisí na konkrétní cílové architektuře, ale bylo by možné například umožnit dynamicky přepínat mezi různými algoritmy alokace registrů pro stejnou instrukční sadu). V současné chvíli ale implementace spoléhá na fakt, že pro každou platformu existuje jeden instruction selector a k němu odpovídající register allocator.
 
-Posledním krokem, který už příliš nesouvisí se samotným generováním kódu, je převod instrukcí vygenerovaných code generation krokem do podoby tisknutelného assembly. Převod interní reprezentace instrukcí pomocí algebraických/zobecněných algebraických datových typů do textové podoby je pak opět implementován pomocí parametrizované typové třídy \textit{AsmPrinter}, která každé instrukci přiřadí její textovou reprezentaci. Tento design pak umožňuje v budoucnu implementovat více různě parametrizovaných instancí dané třídy a poměrně snadno tak získat podporu pro více různých syntaxí zápisu stejné instrukční sady (jako je třeba Intel a GNU syntaxe v případě x86). 
+Posledním krokem, který už příliš nesouvisí se samotným generováním kódu, je převod instrukcí vygenerovaných code generation krokem do podoby tisknutelného assembly. Převod interní reprezentace instrukcí pomocí algebraických/zobecněných algebraických datových typů do textové podoby je pak opět implementován pomocí parametrizované typové třídy \textit{AsmPrinter}, která každé instrukci přiřadí její textovou reprezentaci. Tento design pak umožňuje v budoucnu implementovat více různě parametrizovaných instancí dané třídy a poměrně snadno tak získat podporu pro více různých syntaxí zápisu stejné instrukční sady (jako je třeba Intel a GNU syntaxe v případě x86).
+
+\subsection{Demo}
+
+Funkcionalitu doposud naimplementovanou v rámci projektu lze vyzkoušet prostřednictvím poskytovaného CLI. Jak již bylo zmíněno výše, projekt v tuto chvíli postrádá plnohodnotný parser textové reprezentace mezikódu. Z tohoto důvodu prozatím jednotlivé vzorové ukázky užití spoléhají na serializaci vstupu ve formátu \textit{json} pomocí Haskell knihovny \textit{aeson}. Ukázkové programy zapsané v IR serializované do formátu \textit{json} lze nalézt v repozitáři projektu v podadresáři \textit{resources/}. Konkrétně se jedná o ukázku rekurzivního výpočtu Fibonacciho čísel v \textit{fibonacci.json} a iteračního výpočetu faktoriálu ve \textit{factorial.json}. Obě ukázky pak pro jednoduchost vypočtenou hodnotu vrací jako exit code celého programu.
+
+Pro přeložení poskytovaných ukázek je nejprve třeba sestavit samotný překladač pomocí \texttt{cabal build}. Výsledný spustitelný soubor pak nabízí následující jednoduché konzolové rozhraní.
+\paragraph{Konzolové rozhraní}
+{\renewcommand\labelitemi{}
+\begin{itemize}
+    \item \textbf{--demo-file, -d}  -- slouží pro specifikování cesty k .json souboru s definicí překládaného programu
+    \item \textbf{--output, -o} --  slouží pro specifikování výstupního souboru (výchozí hodnota: \textit{out.s})
+    \item \textbf{--target-arch, -a} -- slouží pro výběr cílové architektury \textit{Rv32}|\textit{Rv64} (výchozí hodnota: \textit{Rv32})
+\end{itemize}}
+\paragraph{}
+
+Pro přeložení ukázky výpočtu faktoriálu tak následně stačí spustit výsledný spustitelný soubor následujícím způsobem (příklad předpokládá, že ke spouštění dochází z kořenového adresáře projektu a \textit{codegen} sem byl přesunut z build složky, jinak je třeba upravit cesty k souborům odpovídajícím způsobem). Příklad s výpočtem Fibonacciho čísel lze přeložit analogicky.
+\begin{minted}[
+    framesep=2mm,
+    baselinestretch=1.2,
+]{shell}
+    ./codegen -d ./resources/factorial.json -o factorial.s -a Rv32 
+\end{minted}
+
+Vzhledem k omezenému rozšíření v současnosti jediné podporované platformy RISC-V bude pro spuštění vygenerovaného assembly pravděpodobně nutné využít některý z dostupných emulátorů/simulátorů. Nejjednodušší cestou je v tomto ohledu využít některý z \href{https://riscv-simulator-five.vercel.app/}{webových simulátorů}, do kterých ve většině případů stačí pouze zkopírovat obsah výstupního souboru. Případně je možné použít lokální emulátor, jako je například \href{https://wiki.archlinux.org/title/QEMU}{QEMU}. Druhá z metod je z dlouhodobého hlediska spolehlivější, ale vyžaduje instalaci jak samotného emulátoru, tak i \href{https://github.com/riscv-collab/riscv-gnu-toolchain}{\textit{GNU toolchainu}} pro RISC-V na koncové zařízení, aby bylo možné vygenerované assembly sestavit a nalinkovat pomocí \textit{as} a \textit{ld}. 
 
 \clearpage\appendix
 \section{Vymezení pojmů}
