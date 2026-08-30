@@ -297,7 +297,7 @@ codegen ::
   => Program
   -> [target]
 codegen program =
-  let (funcDefs, globalDefs) = groupDefinitions program
+  let (funcDefs, _globalDefs) = groupDefinitions program
       knowFuncDefs = collectFunctionPrototypes funcDefs
       codegenResult = map (flip codegenFuncDefinition knowFuncDefs) funcDefs
    in concat . reverse $ codegenResult

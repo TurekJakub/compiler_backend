@@ -1,3 +1,6 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+
 module Main
   ( main
   ) where
@@ -14,11 +17,31 @@ import Ir
   , Literal(IntLiteral)
   , Program
   )
+
+import Target.Riscv.Common (Rv32Inst, Rv64Inst)
+
 import Target.Riscv.Rv32 ()
 import Target.Riscv.Rv64 ()
 
-_testInput :: Program
-_testInput =
+import Asm.Asm (AsmPrinter, printAssembly)
+import Codegen.Codegen (codegen)
+import Options.Applicative
+
+import Target.Target (InstSelector)
+
+data ArchOpt
+  = Rv32
+  | Rv64
+  deriving (Show, Read, Eq)
+
+data CliOptions = CliOptions
+  { demoSource :: Maybe String
+  , outputPath :: String
+  , arch :: ArchOpt
+  }
+
+testInput :: Program
+testInput =
   [ Function
       $ FunctionDef
           { prototype = FunctionPrototype {name = "main", signature = FuncTypeSignature {returnType = IntType, argTypes = []}}
@@ -75,5 +98,32 @@ _testInput =
           }
   ]
 
+optionsParser :: Parser CliOptions
+optionsParser =
+  CliOptions
+    <$> optional (strOption (long "demo-file" <> short 'd' <> metavar "DEMO_file" <> help "Demo example source file"))
+    <*> strOption
+          (long "output" <> short 'o' <> metavar "OUTPUT_PATH" <> help "Emitted assembly output file" <> value "out.s" <> showDefault)
+    <*> option auto (long "target-arch" <> short 'a' <> metavar "RV32|RV64" <> value Rv32 <> showDefault <> help "Target CPU architecture")
+
 main :: IO ()
-main = runDemo
+main = do
+  let opts = info (optionsParser <**> helper) (fullDesc <> progDesc "Simple RISC-V codegen demo")
+  parsedOpts <- execParser opts
+  let demoExample = demoSource parsedOpts
+  case (arch parsedOpts) of
+    Rv32 -> execute @Rv32Inst demoExample (outputPath parsedOpts)
+    Rv64 -> execute @Rv64Inst demoExample (outputPath parsedOpts)
+  where
+    execute ::
+         forall arch. (AsmPrinter arch, InstSelector arch)
+      => Maybe String
+      -> String
+      -> IO ()
+    execute demoSource outputPath =
+      case demoSource of
+        Just s -> runDemo @arch s outputPath
+        Nothing -> do
+          let codegenResult = codegen @arch testInput
+          putStrLn "--- Generated RISC-V assembly ---"
+          printAssembly @arch codegenResult
