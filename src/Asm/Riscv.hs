@@ -49,7 +49,10 @@ commonAsmEmitter (RV_J label) = oneArgInstHelper "j" (fromString label)
 commonAsmEmitter (RV_Jal rd label) = twoArgsInstHelper "jal" (getRegName rd) (fromString label)
 commonAsmEmitter (RV_Call label) = oneArgInstHelper "call" (fromString label)
 commonAsmEmitter (RV_Beq rs1 rs2 label) = threeArgsInstHelper "beq" (getRegName rs1) (getRegName rs2) (fromString label)
-commonAsmEmitter (RV_Label label) = fromString label <> singleton ':'
+commonAsmEmitter (RV_Label label) =
+  if label == "main"
+    then "_start:"
+    else fromString label <> singleton ':'
 commonAsmEmitter (RV_Ret) = "ret"
 commonAsmEmitter (Rv_Ecall) = "ecall"
 commonAsmEmitter _ = "Not implemented"

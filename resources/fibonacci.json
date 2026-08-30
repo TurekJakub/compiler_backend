@@ -1,0 +1,62 @@
+[
+  {
+    "contents": {
+      "body": [
+        { "contents": "arg0", "tag": "GetLocal" },
+        { "contents": "n", "tag": "SetLocal" },
+        { "contents": "n", "tag": "GetLocal" },
+        {
+          "contents": { "contents": 1, "tag": "IntLiteral" },
+          "tag": "IrLiteral"
+        },
+        { "tag": "Gt" },
+        { "tag": "Not" },
+        { "label": "base_case_false", "tag": "ConditionalBranch" },
+        { "contents": "n", "tag": "GetLocal" },
+        { "label": "end_fib", "tag": "Branch" },
+        { "contents": "base_case_false", "tag": "Label" },
+        { "contents": "n", "tag": "GetLocal" },
+        {
+          "contents": { "contents": 1, "tag": "IntLiteral" },
+          "tag": "IrLiteral"
+        },
+        { "tag": "Sub" },
+        { "fncName": "fib", "tag": "FunctionCall" },
+        { "contents": "fib_n_minus_1", "tag": "SetLocal" },
+        { "contents": "n", "tag": "GetLocal" },
+        {
+          "contents": { "contents": 2, "tag": "IntLiteral" },
+          "tag": "IrLiteral"
+        },
+        { "tag": "Sub" },
+        { "fncName": "fib", "tag": "FunctionCall" },
+        { "contents": "fib_n_minus_2", "tag": "SetLocal" },
+        { "contents": "fib_n_minus_1", "tag": "GetLocal" },
+        { "contents": "fib_n_minus_2", "tag": "GetLocal" },
+        { "tag": "Add" },
+        { "contents": "end_fib", "tag": "Label" }
+      ],
+      "prototype": {
+        "name": "fib",
+        "signature": { "argTypes": ["IntType"], "returnType": "IntType" }
+      }
+    },
+    "tag": "Function"
+  },
+  {
+    "contents": {
+      "body": [
+        {
+          "contents": { "contents": 5, "tag": "IntLiteral" },
+          "tag": "IrLiteral"
+        },
+        { "fncName": "fib", "tag": "FunctionCall" }
+      ],
+      "prototype": {
+        "name": "main",
+        "signature": { "argTypes": [], "returnType": "IntType" }
+      }
+    },
+    "tag": "Function"
+  }
+]

@@ -1,17 +1,17 @@
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE DeriveAnyClass #-}
 
 module Ir
   ( module Ir
   ) where
 
+import Data.Aeson (FromJSON, ToJSON)
 import GHC.Generics (Generic)
 
 data Literal
   = IntLiteral (Int)
   | CharLiteral (Char)
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic, FromJSON, ToJSON)
 
 type LabelName = String
 
@@ -56,40 +56,41 @@ data IrToken
   | Eq
   | Not
   | PrintInt
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic, FromJSON, ToJSON)
 
 data IrType
   = IntType
   | CharType
   | DoubleType
   | VoidType
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic, FromJSON, ToJSON)
 
 data FuncTypeSignature = FuncTypeSignature
   { argTypes :: [IrType]
   , returnType :: IrType
-  } deriving (Show, Generic)
+  } deriving (Show, Generic, FromJSON, ToJSON)
 
 data FunctionPrototype = FunctionPrototype
   { name :: LabelName
   , signature :: FuncTypeSignature
-  } deriving (Show, Generic)
+  } deriving (Show, Generic, FromJSON, ToJSON)
 
 data FunctionDef = FunctionDef
   { prototype :: FunctionPrototype
   , body :: [IrToken]
-  } deriving (Show, Generic)
+  } deriving (Show, Generic, FromJSON, ToJSON)
 
 data GlobalDef = GlobalDef
   { globalName :: VarName
   , globalType :: IrType
   , initialVal :: Literal
   , const :: Bool
-  }
+  } deriving (Generic, FromJSON, ToJSON)
 
 data Definition
   = Function FunctionDef
   | Global GlobalDef
+  deriving (Generic, FromJSON, ToJSON)
 
 type Program = [Definition]
 

@@ -1,0 +1,58 @@
+[
+  {
+    "contents": {
+      "body": [
+        {
+          "contents": { "contents": 1, "tag": "IntLiteral" },
+          "tag": "IrLiteral"
+        },
+        { "contents": "result", "tag": "SetLocal" },
+        { "contents": "arg0", "tag": "GetLocal" },
+        { "contents": "n", "tag": "SetLocal" },
+        { "contents": "loop_start", "tag": "Label" },
+        { "contents": "n", "tag": "GetLocal" },
+        {
+          "contents": { "contents": 1, "tag": "IntLiteral" },
+          "tag": "IrLiteral"
+        },
+        { "tag": "Gt" },
+        { "label": "loop_end", "tag": "ConditionalBranch" },
+        { "contents": "result", "tag": "GetLocal" },
+        { "contents": "n", "tag": "GetLocal" },
+        { "tag": "Mul" },
+        { "contents": "result", "tag": "SetLocal" },
+        { "contents": "n", "tag": "GetLocal" },
+        {
+          "contents": { "contents": 1, "tag": "IntLiteral" },
+          "tag": "IrLiteral"
+        },
+        { "tag": "Sub" },
+        { "contents": "n", "tag": "SetLocal" },
+        { "label": "loop_start", "tag": "Branch" },
+        { "contents": "loop_end", "tag": "Label" },
+        { "contents": "result", "tag": "GetLocal" }
+      ],
+      "prototype": {
+        "name": "factorial",
+        "signature": { "argTypes": ["IntType"], "returnType": "IntType" }
+      }
+    },
+    "tag": "Function"
+  },
+  {
+    "contents": {
+      "body": [
+        {
+          "contents": { "contents": 5, "tag": "IntLiteral" },
+          "tag": "IrLiteral"
+        },
+        { "fncName": "factorial", "tag": "FunctionCall" }
+      ],
+      "prototype": {
+        "name": "main",
+        "signature": { "argTypes": [], "returnType": "IntType" }
+      }
+    },
+    "tag": "Function"
+  }
+]
